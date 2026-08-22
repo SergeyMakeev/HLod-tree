@@ -1,7 +1,7 @@
 # Archived performance campaigns
 
-These journals document the sequence of optimization experiments that led to
-earlier and current implementations. They contain revision-specific APIs,
+These journals document the sequence of optimization experiments across
+successive implementations. They contain revision-specific APIs,
 measurements, hypotheses, rejected prototypes, and before/after comparisons.
 They are not current performance or integration documentation.
 
@@ -16,5 +16,5 @@ They are not current performance or integration documentation.
 - [Round 9](PERFORMANCE_OPTIMIZATION_2026_ROUND9.md)
 - [Round 10](PERFORMANCE_OPTIMIZATION_2026_ROUND10.md)
 
-For current absolute measurements, use the
-[current performance report](../../PERFORMANCE.md).
+The matching cross-platform absolute measurements are in the
+[2026-08-18 performance snapshot](../PERFORMANCE_2026-08-18.md).

@@ -139,10 +139,11 @@ motion publication. Changed leaves enter a deduplicated repair queue;
 `applyUpdates(maintenanceNodeBudget)` tightens at most that many nodes and
 propagates shrinkage by queuing parents. Unprocessed nodes remain conservative.
 Population drift, edit count, and current lane-area growth only set a topology-
-rebuild recommendation. `optimize(TopologyOnly)` performs an exact SpatialBins
-rebuild while preserving dense instance layout.
-`optimize(TopologyAndLayout)` performs configured-quality rebuild, compaction,
-and spatial reordering. Both modes retain public instance ids.
+rebuild recommendation. `optimize(OptimizationMode::TopologyOnly)` performs an
+exact SpatialBins rebuild while preserving dense instance layout.
+`optimize(OptimizationMode::TopologyAndLayout)` performs configured-quality
+rebuild, compaction, and spatial reordering. Both modes retain public instance
+ids.
 
 Flat TLAS roots have specialized emission paths and never touch mounted-state
 streams. Hierarchical roots may terminate directly before a local camera
@@ -166,15 +167,10 @@ Reuse is exact for node membership. A cached record is valid only while:
 Compact encoded error magnitude can age within that proven interval, but its
 above/below-threshold classification remains correct.
 
-Once admitted, an exact view over a 10,000-root hierarchy returns from the
-two-entry whole-cut memo in 10-68 ns on the four measured platforms. This does
-not include iterating the returned
-20,000-entry view. A caller that knows every record is invalid should disable
-reuse; deliberately forcing all records to miss costs 44.5-51.5% more than a
-reuse-disabled raw walk. The continuously moving 100,000-leaf city, which
-cannot use an exact recurring-view memo, completes motion, publication, and
-exact payload64 selection in 18.254-69.866 us. See
-[PERFORMANCE.md](PERFORMANCE.md).
+An admitted exact view can return from the two-entry whole-cut memo without a
+hierarchy walk, but downstream iteration remains proportional to the returned
+cut. A caller that knows every record is invalid should disable reuse so it
+does not pay validation and recording around an unavoidable raw walk.
 
 ## 11. Collection
 
@@ -203,7 +199,6 @@ after all placements are gone.
 | selection | output-sensitive TLAS plus surviving hierarchy work |
 | cache hit | O(recorded output plus dependency validation) |
 
-The complexity bounds describe scaling, not constants. Current representative
-latencies and the measured split between TLAS work, mounted refinement,
-publication, and selection are maintained in the
-[current performance report](PERFORMANCE.md).
+The complexity bounds describe scaling, not constants. Use
+[BENCHMARKING.md](BENCHMARKING.md) to measure the complete current workflow,
+including output consumption, on each target.

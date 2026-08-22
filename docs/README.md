@@ -10,7 +10,7 @@ the historical records.
 ## Current documentation
 
 - [README](../README.md): project overview, supported workflows, build options,
-  and headline current performance.
+  and performance measurement entry points.
 - [Current codebase](CODEBASE.md): source map, runtime architecture, data
   layouts, frame lifecycle, build configuration, and current constraints.
 - [API guide](API.md): progressive integration guide from authoring through
@@ -24,8 +24,6 @@ the historical records.
 - [Testing](TESTING.md): current correctness matrix and release verification.
 - [Benchmarking](BENCHMARKING.md): current workloads, runners, and measurement
   protocol.
-- [Performance](PERFORMANCE.md): absolute current
-  results on M2 Max, Cortex-A72, i9-12900K, and EPYC 9654.
 
 ## Historical records
 
@@ -33,9 +31,3 @@ the historical records.
 designs, old APIs, optimization experiments, rejected prototypes, and
 before/after measurements. They are engineering records and are not part of
 the current integration contract.
-
-## Implemented design records
-
-- [Frontier refinement computation API](proposals/FRONTIER_REFINEMENT_API.md):
-  rationale and invariants behind the current-only selection result and
-  policy-free `SpatialQuery::computeFrontierRefinement()` building block.

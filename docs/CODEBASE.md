@@ -161,9 +161,10 @@ node; shrinkage queues its parent. A zero budget keeps the grown envelopes,
 finite budgets distribute repair over updates, and
 `kUnlimitedTlasMaintenance` drains the queue. Population, edit, and area drift
 are reported as `topologyRebuildRecommended`; they never trigger an optional
-rebuild inside publication. `optimize(TopologyOnly)` rebuilds exact SpatialBins
-topology without changing dense layout. `optimize(TopologyAndLayout)` also
-compacts and spatially reorders storage and uses the configured quality tier.
+rebuild inside publication. `optimize(OptimizationMode::TopologyOnly)` rebuilds
+exact SpatialBins topology without changing dense layout.
+`optimize(OptimizationMode::TopologyAndLayout)` also compacts and spatially
+reorders storage and uses the configured quality tier.
 
 When the pending motion cohort reaches one quarter of the TLAS population,
 publication streams the retained TLAS postorder once, copies exact dense leaf
@@ -228,26 +229,18 @@ CPU or application-level binary dispatch. SSE2-only builds propagate their
 baseline flags to CMake consumers; custom build systems must apply equivalent
 flags themselves.
 
-## Correctness and measured capacity
+## Correctness and capacity validation
 
-The current Debug matrix contains 532 tests across payload32/payload64 and
-BVH4/BVH8. It covers serialization, contracts, current cuts and refinement, streaming,
-mounting, cache validity, motion, TLAS maintenance, parallel determinism,
-randomized churn, and concurrent snapshot reads.
+The Debug matrix runs the complete suite across payload32/payload64 and
+BVH4/BVH8. It covers serialization, contracts, current cuts and refinement,
+streaming, mounting, cache validity, motion, TLAS maintenance, renderer-facing
+output, parallel determinism, randomized churn, and concurrent snapshot reads.
 
-The current four-device Release measurement reports a complete moving-city
-database frame at:
-
-| Device | Payload64 motion + publication + exact selection |
-|---|---:|
-| M2 Max | 18.254 us |
-| EPYC 9654 | 23.144 us |
-| i9-12900K | 38.143 us |
-| Cortex-A72 SBC | 69.866 us |
-
-The workload has 100,000 logical leaves, 1,191 TLAS roots, 1,100 moving actor
-roots, and a continuously changing 40 mph camera. Complete measurement details
-and limitations are in [PERFORMANCE.md](PERFORMANCE.md).
+Capacity and latency are workload- and target-dependent. The repository
+benchmarks reusable assembly, cache behavior, motion/publication, lifecycle
+churn, bounds edits, render submission, and a continuously moving large city.
+Use [BENCHMARKING.md](BENCHMARKING.md) to collect results for the current
+revision and shipping configuration.
 
 ## Current constraints
 

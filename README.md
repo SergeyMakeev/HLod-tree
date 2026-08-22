@@ -145,7 +145,15 @@ values in frontier results, then retained while asynchronous loading runs.
 `cut` is always a complete render frontier. Refinement analysis is opt-in and
 returns only complete visible immediate-child groups, in breadth-first depth
 order. `maxDepth` bounds lookahead, while `maxNodes` bounds candidate storage
-without ever truncating a group. Readiness means the renderer has every GPU resource
+without ever truncating a group. `complete()` reports whether those bounds
+truncated known mounted refinement; use `depthLimitReached()` and
+`nodeLimitReached()` to distinguish the cause. The source cut must be the
+complete, unchanged result of the same query's immediately preceding handle
+selection, and the database must remain in the same published read interval.
+See the [bounded refinement guide](docs/API.md#bounded-refinement-analysis) and
+[exact API contract](docs/API_REFERENCE.md#refinement-computation).
+
+Readiness means the renderer has every GPU resource
 needed to dispatch a node's payload. It belongs to a node in a registered
 definition and is shared by that node across every placement of the definition.
 Equal payload values in different nodes are independent; applications that use
@@ -201,38 +209,27 @@ mutation or collection. A zero budget publishes conservative grown TLAS bounds
 without tightening; finite budgets spread tightening across frames, and
 `kUnlimitedTlasMaintenance` drains all pending tightening work. The returned
 `UpdateReport` reports remaining work and recommends explicit optimization
-when quality has drifted far enough. `optimize(TopologyOnly)` performs a fast
-linear-pass spatial-bin rebuild without changing dense instance layout;
-`optimize(TopologyAndLayout)` uses the configured quality tier and also
-compacts and spatially reorders storage.
+when quality has drifted far enough.
+`optimize(OptimizationMode::TopologyOnly)` performs a fast linear-pass
+spatial-bin rebuild without changing dense instance layout;
+`optimize(OptimizationMode::TopologyAndLayout)` uses the configured quality
+tier and also compacts and spatially reorders storage.
 
 Each query owns damping, reuse records, scratch, output, optional instrumented
 statistics, and optional mount-retention feedback. Enable the latter with
 `query.setMountUsageEnabled(true)` and pass the query to `collect()` when its
 camera should influence retention.
 
-## Measured release performance
+## Performance
 
-The current format-v3 release snapshot measures a realistic continuously
-moving city with 100,000 logical leaves, 100 rotating/moving cars, 1,000
-pedestrians, an 85,000-leaf depth-five static world, and a 40 mph camera.
-Payload64 median database time per simulated frame is:
-
-| Platform | Complete motion + publication + exact selection | Motion + publication only | Share of 60 Hz budget |
-|---|---:|---:|---:|
-| Apple M2 Max | **18.254 us** | 1.953 us | 0.110% |
-| Cortex-A72 SBC | **69.866 us** | 8.140 us | 0.419% |
-| Intel i9-12900K | **38.143 us** | 2.497 us | 0.229% |
-| AMD EPYC 9654 | **23.144 us** | 1.992 us | 0.139% |
-
-The current reusable-assembly path completes the measured 400-house build in
-17.464-96.355 us and retains 73.293-77.191 KiB, depending on native BVH width.
-Payload32 saves about 773 KiB in the measured city but has no portable timing
-advantage. These medians are workload measurements, not latency guarantees;
-see the
-[current performance report](docs/PERFORMANCE.md)
-for both payload widths, generic controls, raw traversal, forced misses,
-assembly, lifecycle, kernel context, and measurement caveats.
+The benchmark suite covers reusable assembly, cached and uncached selection,
+mixed readiness, refinement, motion/publication, lifecycle churn, bounds
+overrides, renderer-facing output, and realistic moving-city frames. Measure
+the current revision on each shipping target: SIMD width, payload width,
+compiler, scene shape, camera coherence, and downstream output consumption all
+affect the result. The [benchmarking guide](docs/BENCHMARKING.md) documents the
+Release configuration, paired-revision gate, complete-report collector, and
+machine controls.
 
 ## Building
 
@@ -243,7 +240,7 @@ bash ./run_perf_bench.sh  # Release, native BVH width, 4/8-byte payload comparis
 
 GCC PGO is available through `run_arm_pgo.sh` for applications that can train
 and ship compiler/source/workload-specific profiles. It is optional; the
-four-device snapshot above uses Release with IPO and without PGO.
+standard performance runners use Release with IPO and without PGO.
 
 On Windows, use `run_unit_tests.bat` and `run_perf_bench.bat`.
 
@@ -311,8 +308,6 @@ See the [documentation index](docs/README.md), the
 [API guide](docs/API.md) for the integration flow, the
 exhaustive [API reference](docs/API_REFERENCE.md) for exact contracts,
 [ARCHITECTURE.md](docs/ARCHITECTURE.md) for implementation details, and
-[BENCHMARKING.md](docs/BENCHMARKING.md) for measurement guidance. The current
-M2 Max, Cortex-A72 SBC, i9-12900K, and EPYC 9654 results are in the
-[current performance report](docs/PERFORMANCE.md).
+[BENCHMARKING.md](docs/BENCHMARKING.md) for measurement guidance.
 Historical designs and experiments are kept separately in
 [HISTORY.md](docs/HISTORY.md) and the [documentation archive](docs/archive/README.md).

@@ -182,24 +182,15 @@ Four rules explain most of the architecture:
 3. Definitions are immutable and shareable; placements are mutable and unique.
 4. Topology availability and render readiness are independent.
 
-### Measured release behavior
+### Performance-oriented integration
 
-In the current four-platform Release snapshot, a complete payload64 database
-frame over the continuously moving 100,000-leaf city takes 18.254-69.866 us.
-That includes transform staging, 1,100 moving actor roots, publication, a
-continuously changing 40 mph camera, and exact selection of an average
-24,072.71-entry cut. The isolated motion/publication phase takes 1.953-8.140
-us. Exact recurring views over the generic 10,000-root hierarchy are served by
-the two-entry whole-cut memo in 10-68 ns after admission; that lookup does not
-include downstream iteration of the returned 20,000 entries.
-
-These figures explain the intended integration pattern: keep one
-`SpatialQuery` per coherent view, use `MotionGroup` for stable moving cohorts,
-publish once after a mutation batch, and disable reuse when the caller knows
-every cached record must miss. Absolute time depends on output size, scene
-shape, compiler, and processor. The complete workloads, per-machine tables,
-and caveats are in the
-[current performance report](PERFORMANCE.md).
+Keep one `SpatialQuery` per coherent view, use persistent `MotionGroup` or
+`RigidMotionGroup` objects for stable moving cohorts, publish once after a
+mutation batch, and disable reuse when the caller knows every cached record
+must miss. Query time is output-sensitive and depends on scene shape, camera
+coherence, payload width, SIMD width, compiler, and processor. Measure the
+complete public workflow—including result consumption—using the workloads and
+paired-revision procedure in [BENCHMARKING.md](BENCHMARKING.md).
 
 ## 3. Describe one renderable node
 
@@ -558,8 +549,11 @@ interval. `tryGetPayload()` is stale-safe because applications may also retain
 node handles across writer phases; failure in the loop above would indicate
 that the threading contract was violated.
 
-Streaming analysis is explicit and bounded. This call looks three refinement
-transitions below current and stores at most 4096 candidate entries:
+### Bounded refinement analysis
+
+`computeFrontierRefinement()` describes structurally valid ways to improve the
+current cut. It does not choose a streaming plan or materialize a second
+frontier:
 
 ```cpp
 FrontierRefinementView refinement = mainView.computeFrontierRefinement(
@@ -573,43 +567,184 @@ for (uint32_t group = 0; group < refinement.groupCount(); ++group) {
 }
 ```
 
-Every span is a complete visible immediate-child cover for its parent. Groups
-are ordered breadth-first, and depth 1 directly replaces a current entry. A
-planner may choose several levels to skip intermediate representations, but it
-must preserve the returned group boundary when reasoning about a hole-free
-transition. `maxNodes` is also group-atomic: a group that does not fit is not
-partially returned. Inspect `complete()`, `depthLimitReached()`, and
-`nodeLimitReached()` when the distinction matters.
+The call scans the complete current cut and starts only from entries whose
+projected error is over the retained selection threshold. It follows already
+mounted topology, including mounted-definition boundaries, and recomputes
+child visibility and error with the exact damped camera, transforms, error
+clamps, and bounds overlays retained by the preceding selection. Readiness is
+deliberately ignored: a group describes a possible finer cover, and the
+application decides which missing resources to request. The walk stops at
+below-threshold entries, terminal nodes, and unmounted boundaries.
 
-Topology demand starts with over-threshold mountable nodes in current. A
-lookahead planner should also inspect `refinement.entries()` for deeper
-mountable boundaries:
+Each group has the following contract:
+
+- `parent(group)` is an existing node. At depth 1 it is in `cut`; at greater
+  depths it is a child in an earlier group.
+- `children(group)` is the complete set of that parent's visible immediate
+  children. Authored children outside the retained frustum are absent by
+  design. A parent with no visible children does not produce a group.
+- `depth(group)` counts refinement transitions below `cut`, starting at 1.
+- groups are ordered breadth-first. `findGroup(node)` returns the group that
+  expands `node`, or `kInvalidIndex` when none was emitted.
+- `entries()` concatenates every child span for bulk inspection but does not
+  preserve the group boundaries. Each entry retains the top-level
+  `InstanceId` and a fresh error code relative to `threshold()`.
+
+At a mount boundary, the mountable node remains the group parent and the
+mounted definition's visible root nodes form its child span. The method never
+invents an unmounted definition and never coarsens a current entry that is
+already finer than the threshold-directed stopping rule.
+
+`maxDepth` must be positive and counts the transitions described above;
+`SpatialQuery::UnlimitedDepth` requests exhaustive traversal of known mounted
+topology. `maxNodes` bounds the total number of returned child entries and may
+be zero. The node limit is group-atomic: if the next complete group does not
+fit, none of it is returned and traversal stops. A finite depth by itself is
+also a complete decision horizon—every group through that depth is intact. A
+`maxNodes` stop can still make the returned analysis incomplete.
+
+The status methods describe truncation of this analysis:
+
+- `complete()` means neither requested bound stopped the walk. It does not mean
+  that resources are resident or that the application has loaded every
+  possible unmounted definition.
+- `depthLimitReached()` means an over-threshold node at the horizon has finer
+  mounted topology. The diagnostic is conservative because visibility beyond
+  the horizon is not evaluated just to improve the flag.
+- `nodeLimitReached()` means the next breadth-first group did not fit.
+- `empty()` means no groups were emitted; inspect the limit flags to distinguish
+  an already-satisfied/terminal cut from a zero or insufficient node budget.
+
+Unlimited traversal can be proportional to all visible threshold-directed
+nodes below current. `maxNodes` bounds returned storage, not every unit of work:
+the implementation must still scan current and inspect the immediate group
+that encounters the limit. Use both finite depth and node bounds when the
+caller needs a tight decision horizon.
+
+The source frontier has a strict provenance contract. It must be the complete,
+unchanged result of this `SpatialQuery`'s immediately preceding
+`selectFrontier()` call. Repeated refinement calls are allowed until another
+selection occurs. Query-owned views, non-overflowed fixed-sink storage wrapped
+as a `FrontierResultView`, and owning `FrontierResult` output are accepted. A
+truncated fixed sink, a copied or modified entry sequence, output from another
+query, and `selectRenderFrontier()` output are not. The database must also be
+the query's bound database, with no published mapping, spatial, or content
+change since selection. Contract violations route through `FRONTIER_FATAL`.
+
+The returned view is query-owned. It remains valid until the next selection,
+refinement computation, `reset()`, move assignment, or destruction of that
+query. `threshold()` remains available so the application can decode each
+entry with `approximateError(refinement.threshold())`.
+
+### Applying refinement groups
+
+To construct a candidate cut, begin with `cut` and replace a parent only with
+its entire child span. A deeper group can be applied only after the groups that
+make its parent present. This parent-before-child rule allows a planner to skip
+an intermediate representation while preserving complete coverage:
 
 ```cpp
-for (const FrontierEntry& entry : cut) {
-    if (!entry.overThreshold() ||
-        database.hasMountedSubtree(entry.nodeHandle))
+CandidateCut candidate(cut.entries);
+for (uint32_t group = 0; group < refinement.groupCount(); ++group) {
+    const frontier::NodeHandle parent = refinement.parent(group);
+
+    if (!candidate.contains(parent) ||
+        !streamingPlanner.accept(parent,
+                                 refinement.children(group),
+                                 refinement.depth(group)))
         continue;
 
-    if (UserPayload payload = database.tryGetPayload(entry.nodeHandle);
-        payload != kInvalidPayload &&
-        content.isExpandable(payload))
-        requestChildDefinition(entry.nodeHandle, payload);
+    candidate.replaceWholeGroup(parent, refinement.children(group));
 }
+```
+
+The helper types above are application policy, not Frontier API. In an
+asynchronous renderer, planners commonly request the missing members of an
+accepted group and keep its parent selected until all required children are
+ready. The next ordinary selection then advances the renderable cut without a
+partial sibling transition. Byte budgets, priorities, request coalescing,
+cross-camera aggregation, and eviction remain application responsibilities.
+
+Topology demand starts with over-threshold mountable nodes in current and
+continues through the bounded refinement entries:
+
+```cpp
+auto requestMissingTopology = [&](std::span<const FrontierEntry> entries) {
+    for (const FrontierEntry& entry : entries) {
+        if (!entry.overThreshold() ||
+            database.hasMountedSubtree(entry.nodeHandle))
+            continue;
+
+        if (UserPayload payload = database.tryGetPayload(entry.nodeHandle);
+            payload != kInvalidPayload && content.isExpandable(payload))
+            requestChildDefinition(entry.nodeHandle, payload);
+    }
+};
+
+requestMissingTopology(cut.entries);
+requestMissingTopology(refinement.entries());
 ```
 
 `FrontierResultView` points into its `SpatialQuery` and remains valid until that
 query's next selection, `reset()`, or destruction. Use `FrontierResult` for an
 owning copy or `Sink<FrontierEntry>` to write directly into fixed caller
-memory. `computeFrontierRefinement()` requires the complete view from that
-query's immediately preceding handle selection and an unchanged database
-snapshot. Its returned view is invalidated by the next selection, refinement
-call, or reset on the query.
+memory.
 
 Each `FrontierEntry` carries a generation-stamped `NodeHandle`, an
 `InstanceId` stable for the lifetime of its top-level instance, and a
 threshold-relative error code. The instance id is appropriate for indexing the
 application's top-level transform or entity table while that instance is live.
+
+### Renderer-facing current-cut output
+
+The handle cut is the authoritative path for topology, readiness, and
+refinement work. Rendering code has two additional ways to avoid one payload
+lookup per entry.
+
+For a retained or caller-owned handle cut, resolve the whole span into
+caller-owned contiguous storage:
+
+```cpp
+std::vector<ResolvedFrontierEntry> resolved(cut.size());
+std::span<ResolvedFrontierEntry> renderEntries =
+    database.resolveFrontier(cut.entries, resolved);
+
+for (const ResolvedFrontierEntry& entry : renderEntries)
+    renderer.submit(entry.payload, entry.instance(), entry.errorCode());
+```
+
+`resolveFrontier()` preserves order and the packed instance/error metadata. It
+validates consecutive entries from one mounted placement as a run, returns
+`kInvalidPayload` for a stale handle, and returns an empty span without writing
+when the destination is too small.
+
+When hierarchical reuse is enabled, `selectRenderFrontier()` retains resolved
+payloads and one-byte error codes in the same per-instance cache slabs as the
+selected cuts. Cache hits then append only compact per-instance runs:
+
+```cpp
+RenderFrontierView render = mainView.selectRenderFrontier(
+    database, camera, params);
+
+for (const RenderFrontierRun& run : render.runs()) {
+    RenderFrontierSpan span = render[run];
+    for (size_t i = 0; i < span.size(); ++i)
+        renderer.submit(span.payloads[i], span.instance, span.errors[i]);
+}
+```
+
+`size()` is the logical entry count and `segmentCount()` is the number of runs.
+The payload and error storage spans are backing slabs; consume only the ranges
+addressed by `runs()`. In reuse-disabled and all-flat scenes the method
+materializes a contiguous fallback but exposes the same run interface.
+`setInstanceRenderAsUnit()` can conservatively keep an accepted boundary
+instance's complete cached cut instead of repeating descendant frustum culling.
+
+The render view remains valid until that query's next selection or `reset()`,
+or until the query is destroyed. A render-native call deliberately does not
+leave the handle frontier required by `computeFrontierRefinement()`. Use
+`selectFrontier()`—often on a separate, lower-cadence streaming query—when the
+same frame also needs handle or refinement analysis.
 
 ### Fully resident max-detail output
 
@@ -1333,7 +1468,7 @@ void applyCompletions()
         // A stale parent simply returns an invalid placement.
     }
 
-database.applyUpdates(256);
+    database.applyUpdates(256);
 }
 ```
 
@@ -1369,7 +1504,7 @@ void frame(std::span<const float4> vehiclePositions)
     database.moveInstances(vehicles, vehiclePositions, 1.0f);
     for (const AnimatedBound& edit : animatedBounds)
         database.setNodeBounds(edit.instance, edit.node, edit.localBounds);
-database.applyUpdates(256);
+    database.applyUpdates(256);
 
     // Concurrent read phase.
     FrontierResult mainResult;

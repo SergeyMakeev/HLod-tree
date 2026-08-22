@@ -1,6 +1,12 @@
-# Frontier refinement computation API
+# Frontier refinement computation API proposal
 
-Status: implemented.
+> Historical record. This document includes the retired ideal-frontier API,
+> rejected alternatives, and pre-implementation questions. It is not current
+> product documentation. See [the API guide](../API.md#bounded-refinement-analysis)
+> and [API reference](../API_REFERENCE.md#refinement-computation) for the
+> implemented contract.
+
+Status at archival: implemented.
 
 This document records the bounded, policy-free API for inspecting refinement
 opportunities below the current frontier produced by one `SpatialQuery`,

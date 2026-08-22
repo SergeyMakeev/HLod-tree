@@ -7,8 +7,8 @@
 > [API reference](API_REFERENCE.md) for exact signatures,
 > [ARCHITECTURE.md](ARCHITECTURE.md) for the current implementation, and
 > [frontier_design.md](frontier_design.md) for the current behavioral contract.
-> Current measurements are in the
-> [current performance report](PERFORMANCE.md).
+> The matching 2026-08-18 measurements are in the
+> [archived performance snapshot](archive/PERFORMANCE_2026-08-18.md).
 
 This document preserves the optimization experiments and measurements that
 shaped the library. It is evidence and rationale, not integration guidance.

@@ -211,9 +211,9 @@ constraints.
 | Shared TLAS level scratch | 4 B/live root | Spatial-bin scatter during rebuild; retained exact-refit postorder between rebuilds. |
 
 Top-level public instance ids are stable. The database separately maps stable
-handle ids to dense physical ids, so `optimize(TopologyAndLayout)` can reorder
-and compact all parallel instance streams without invalidating application
-handles.
+handle ids to dense physical ids, so
+`optimize(OptimizationMode::TopologyAndLayout)` can reorder and compact all
+parallel instance streams without invalidating application handles.
 
 ### 4.3 Hot/cold and sparse allocation rules
 
@@ -438,9 +438,9 @@ roots are the children of the mountable parent, so the existing parent
 Parent, child-offset, depth, and entry buffers are committed only after the
 whole visible sibling cover fits `maxNodes`. Descendants are enqueued only
 after their group commits. This preserves complete groups at every limit and
-makes output depth order deterministic. `UnlimitedDepth` removes the depth
-horizon; it does not invent unmounted topology or coarsen a current node that
-is already finer than the implicit threshold target.
+makes output depth order deterministic. `SpatialQuery::UnlimitedDepth` removes
+the depth horizon; it does not invent unmounted topology or coarsen a current
+node that is already finer than the implicit threshold target.
 
 ## 6. Fast-path inventory
 
@@ -649,9 +649,9 @@ definitions, and readiness bits survive the removal of placements.
 ### 9.1 Build tiers
 
 The configured quality tier is `SpatialBins`, `Median`, or 16-bin `BinnedSAH`.
-Initial builds and `optimize(TopologyAndLayout)` use the configured tier.
-`optimize(TopologyOnly)` uses the SpatialBins builder and preserves the
-current dense instance layout.
+Initial builds and `optimize(OptimizationMode::TopologyAndLayout)` use the
+configured tier. `optimize(OptimizationMode::TopologyOnly)` uses the
+SpatialBins builder and preserves the current dense instance layout.
 
 The quality builder recursively produces a `kWide`-way tree using
 `log2(kWide)` binary splits per node. SAH scans 16 bins on all three axes; a
@@ -730,22 +730,23 @@ camera by the offset. A later differential edit materializes it in one pass.
 
 ### 9.4 Explicit topology rebuilds
 
-`optimize(TopologyOnly)` consumes exact current instance bounds, rebuilds all
-TLAS nodes with linear-pass spatial bins, clears loose flags and the incremental
-repair queue, and establishes fresh population and area baselines. It does not
-compact dead dense slots, permute any per-instance stream, or increment the
-instance layout and mapping epochs. Existing `MotionGroup` and
-`RigidMotionGroup` dense mappings therefore remain valid.
+`optimize(OptimizationMode::TopologyOnly)` consumes exact current instance
+bounds, rebuilds all TLAS nodes with linear-pass spatial bins, clears loose
+flags and the incremental repair queue, and establishes fresh population and
+area baselines. It does not compact dead dense slots, permute any per-instance
+stream, or increment the instance layout and mapping epochs. Existing
+`MotionGroup` and `RigidMotionGroup` dense mappings therefore remain valid.
 
-`optimize(TopologyAndLayout)` performs the configured-quality rebuild and then
-compacts and spatially reorders dense storage. It is the appropriate choice
-when dead-slot reclamation or a configured Median/BinnedSAH topology justifies
-the additional safe-point cost. The mode argument is required so call sites
-state which invalidation and cost profile they accept.
+`optimize(OptimizationMode::TopologyAndLayout)` performs the configured-quality
+rebuild and then compacts and spatially reorders dense storage. It is the
+appropriate choice when dead-slot reclamation or a configured Median/BinnedSAH
+topology justifies the additional safe-point cost. The mode argument is
+required so call sites state which invalidation and cost profile they accept.
 
 ### 9.5 Physical reordering
 
-The first spatial build and explicit `optimize(TopologyAndLayout)` calls
+The first spatial build and explicit
+`optimize(OptimizationMode::TopologyAndLayout)` calls
 reorder dense database instance streams into TLAS traversal order. A query
 detects the layout-version change, clears old records, and subsequently indexes
 new cache records in that same dense order. Visible ids then tend to be a
@@ -756,7 +757,8 @@ time.
 
 Any new per-instance parallel stream must be handled in allocation, removal,
 reordering, and compaction code. Missing one of those sites usually creates a
-correctness bug that appears only after `optimize(TopologyAndLayout)`.
+correctness bug that appears only after
+`optimize(OptimizationMode::TopologyAndLayout)`.
 
 ## 10. Copy-on-write deformed bounds
 
@@ -786,9 +788,9 @@ envelope. Only overlays along that ancestor path are privatized.
 
 Submission order is preserved and the last write to a node wins. The queue is
 intentionally not sorted or deduplicated: repeated edits hit the same hot lane
-and naturally stop at an already-grown ancestor, while measured stamp/hash/sort
-schemes cost more cold traffic. Stale queued edits self-discard through instance
-and node generations.
+and naturally stop at an already-grown ancestor. Stamping, hashing, or sorting
+would add passes and cold metadata traffic. Stale queued edits self-discard
+through instance and node generations.
 
 ## 11. Renderer-facing output paths
 
@@ -891,43 +893,17 @@ shipping architecture.
 `WideBounds` is SoA-transposed: all child min-x values are contiguous, then
 min-y, and so on. Frustum tests select p/n vertices per plane and calculate all
 lane dot products together. On NEON, survivor and narrowed plane masks stay in
-vector registers through all planes because scalarizing each comparison was
-measured to dominate the kernel.
+vector registers through all planes, avoiding per-comparison scalarization.
 
 The hot error path keeps squared distance. AVX2 uses `rsqrt` plus one
 Newton–Raphson refinement and explicitly handles zero-distance infinity/NaN,
 avoiding a vector square root followed by division. AArch64 uses exact vector
-sqrt/divide because that measured faster than its estimate/refinement paths.
-SSE/scalar use their matching exact implementation.
+sqrt/divide. SSE/scalar use their matching exact implementation.
 
 Scalar and wide FMA behavior is deliberately matched because tests require
 bit-identical scalar/wide results. Do not allow contraction on only one path or
 replace arithmetic based solely on instruction count; verify both numerical
 contracts and the machine kernels.
-
-### 12.1 Measured traps worth knowing
-
-The archived optimization rounds are useful because several plausible changes
-lost to memory traffic or code layout:
-
-- A separate SIMD stream of TLAS root errors added a cold load and regressed
-  large uncached queries; scalar root arithmetic was cheaper.
-- A scalar special case for one surviving interior lane did not justify its
-  extra branch beside the established wide kernel.
-- Extra zero-error branches inside the straight-line mounted-leaf batch made
-  that batch much slower even though they appeared to remove arithmetic.
-- Sorting, hashing, or stamping queued bounds edits cost more cold traffic than
-  repeated hot-lane updates and containment early-outs.
-- Returning an indirection descriptor for an ordinary cache hit measured no
-  better than bulk-copying its small recorded ranges, while complicating the
-  caller. The render-native API earns zero-copy through a materially different
-  run layout instead.
-- A forced cache miss does the raw walk **and** records it. If nearly every
-  instance is known to miss, `setReuseEnabled(false)` is the optimization.
-
-These are not timeless laws, but they explain seemingly non-minimal code. Reopen
-one only with a target workload, machine-kernel evidence, and a paired
-end-to-end gate; do not infer a win from deleted instructions alone.
 
 ## 13. Determinism, concurrency, and stale safety
 
@@ -1082,10 +1058,11 @@ Read these symbols in this order when debugging selection:
 
 For serialized authoring, start with `SubtreeBuilder::build()` in
 `src/builder.cpp` and then read `validateSubtreeBytes()` in `src/subtree.cpp`.
-For performance intent and current measurements, use
-[ARCHITECTURE.md](ARCHITECTURE.md), [PERFORMANCE.md](PERFORMANCE.md), and the
-historical optimization notes under `docs/archive/performance/`; the checked-in
-code and its tests remain authoritative when an old note disagrees.
+For performance intent and current measurement procedure, use
+[ARCHITECTURE.md](ARCHITECTURE.md) and [BENCHMARKING.md](BENCHMARKING.md).
+Historical measurements and optimization notes live under `docs/archive/`;
+the checked-in code and its tests remain authoritative when an old note
+disagrees.
 
 ## 17. Complexity and the real cost model
 

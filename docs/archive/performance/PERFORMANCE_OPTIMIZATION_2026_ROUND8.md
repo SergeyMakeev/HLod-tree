@@ -2569,4 +2569,4 @@ values differ from the accepted ordinary non-IPO candidate by only
 0.24-0.30%, reinforcing that the direct approximately 10x result is not an
 IPO, PGO, or code-placement effect. The complete four-device tables and
 protocol caveats are in
-[PERFORMANCE.md](../../PERFORMANCE.md).
+[the 2026-08-18 performance snapshot](../PERFORMANCE_2026-08-18.md).

@@ -668,6 +668,7 @@ public:
     bool empty() const;
     std::span<std::byte> bytes();
     std::span<const std::byte> bytes() const;
+    void release();
 };
 ```
 
@@ -681,6 +682,8 @@ public:
 - `data()` returns the allocation pointer, or `nullptr` when empty.
 - `bytes()` returns a mutable or const span over the complete array. Any move,
   assignment, destruction, or successful ownership transfer invalidates it.
+- `release()` frees the allocation through the stored context and leaves the
+  object empty. Calling it on an empty object is safe.
 
 The type does not distinguish builder-produced and file-loaded data. A caller
 loading from disk constructs the final-sized array and reads directly into
@@ -909,6 +912,26 @@ struct FrontierEntry {
 
 Size: 12 bytes.
 
+### `ResolvedFrontierEntry`
+
+```cpp
+struct ResolvedFrontierEntry {
+    UserPayload payload = kInvalidPayload;
+    uint32_t instanceAndError = kInvalidInstanceId;
+
+    InstanceId instance() const;
+    uint8_t errorCode() const;
+    bool overThreshold() const;
+};
+```
+
+This renderer-facing form replaces the opaque node handle with its immutable
+application payload while preserving the packed instance id and error code.
+It is trivially copyable and occupies 8 bytes with a four-byte `UserPayload`
+or 16 bytes with an eight-byte payload because of alignment. Resolve it from a
+handle cut with `SpatialDatabase::resolveFrontier()`; stale handles produce
+`kInvalidPayload` without changing their instance/error metadata.
+
 ### Result views
 
 ```cpp
@@ -966,11 +989,78 @@ complete visible immediate-child cover. Groups are returned breadth-first;
 depth 1 replaces a node in the supplied current frontier. `entries()` is the
 concatenation of all child spans and does not itself preserve group boundaries.
 `findGroup()` returns `kInvalidIndex` when the parent has no emitted group.
+`parent()`, `children()`, and `depth()` route an out-of-range group index
+through `FRONTIER_FATAL`; `findGroup()` is a linear scan of the view-local
+parents.
+
+Each child is a `FrontierEntry` with the same top-level instance id as its
+parent context and a freshly computed error code relative to `threshold()`.
+Only visible children are included, but the returned span is complete for that
+visible cover. At a mounted-definition boundary, the selected mountable node is
+the parent and the mounted definition's visible roots are the children.
 
 `complete()` means neither requested bound stopped the analysis. A false
 result is explained by `depthLimitReached()` or `nodeLimitReached()`. The view
 uses query-owned storage and remains valid until the query's next selection,
 refinement computation, `reset()`, move assignment, or destruction.
+
+### Render-native result views
+
+```cpp
+struct RenderFrontierRun {
+    uint32_t begin = 0;
+    uint32_t count = 0;
+    InstanceId instance = kInvalidInstanceId;
+};
+
+struct RenderFrontierSpan {
+    std::span<const UserPayload> payloads;
+    std::span<const uint8_t> errors;
+    InstanceId instance = kInvalidInstanceId;
+
+    size_t size() const;
+    bool empty() const;
+};
+
+class RenderFrontierView {
+public:
+    RenderFrontierView();
+    RenderFrontierView(std::span<const UserPayload> payloads,
+                       std::span<const uint8_t> errors,
+                       std::span<const RenderFrontierRun> runs,
+                       size_t entryCount);
+    std::span<const RenderFrontierRun> runs() const;
+    std::span<const UserPayload> payloadStorage() const;
+    std::span<const uint8_t> errorStorage() const;
+    RenderFrontierSpan operator[](const RenderFrontierRun& run) const;
+    size_t size() const;
+    size_t segmentCount() const;
+    bool empty() const;
+};
+```
+
+`RenderFrontierView` is the scatter/gather current cut returned by
+`SpatialQuery::selectRenderFrontier()`. Runs follow visible-instance order.
+Each 12-byte run supplies the instance id once and addresses matching payload
+and one-byte error ranges in the backing slabs. `operator[]` returns those
+ranges as a matching pair; `RenderFrontierSpan::size()` is the number of logical
+entries in the run.
+
+The default constructor creates an empty view. The span constructor is public
+for lightweight view composition; the spans must have compatible offsets and
+lifetimes, and `entryCount` is the logical count represented by `runs`.
+
+`size()` is the total logical current-cut entry count and `segmentCount()` is
+the number of runs. `payloadStorage()` and `errorStorage()` expose backing
+storage for integrations that need it, but cached slabs can contain bytes not
+selected by the current run list. Iterate `runs()` and index each run instead
+of treating either complete storage span as the current cut.
+
+The view is non-owning and remains valid until that query's next selection,
+`reset()`, move assignment, or destruction. A database mutation must not
+overlap its use. There is no owning render-frontier result; use the handle
+selection plus `resolveFrontier()` when the caller needs a retained contiguous
+copy.
 
 ### Fixed output sinks
 
@@ -982,9 +1072,12 @@ public:
     explicit Sink(std::span<T> storage);
     void push(const T& value);
     void pushRange(const T* values, uint32_t count);
+    template <class Generator>
+    void pushGenerated(uint32_t count, Generator&& generate);
     uint32_t count() const;
     uint32_t dropped() const;
     bool overflowed() const;
+    void clear();
 };
 ```
 
@@ -994,8 +1087,13 @@ public:
 - The span constructor writes into caller-owned storage and requires capacity
   not to exceed `UINT32_MAX`.
 - `push()` and `pushRange()` write only elements that fit and count the rest.
+- `pushGenerated(n, generate)` invokes `generate(i)` for each value that fits
+  and writes the returned value directly. Generation is skipped for overflowed
+  fixed-sink elements.
 - `count()` is the number written; `dropped()` is the number omitted;
   `overflowed()` is equivalent to `dropped() != 0`.
+- `clear()` resets the written and dropped counts so the same storage can be
+  reused; it does not modify caller memory.
 - Caller storage must remain valid and unmodified for the selection call. The
   sink does not own it.
 
@@ -1055,6 +1153,9 @@ struct SelectionStats {
     uint64_t nodesVisited = 0;
     uint64_t wideBlocksTested = 0;
     uint64_t lanesSurvived = 0;
+#ifdef FRONTIER_STATS
+    uint64_t fullyRefinedSubtrees = 0;
+#endif
 };
 ```
 
@@ -1062,6 +1163,8 @@ Filled by selection only in builds compiled with `FRONTIER_STATS`. Otherwise
 the counters remain zero and each query omits their storage. CMake users enable
 and propagate the matching ABI setting with `-DFRONTIER_STATS=ON`; manual
 builds must define the macro consistently for the library and every consumer.
+`fullyRefinedSubtrees` counts uses of the eligible fully-refined boundary fast
+path and exists only in instrumented builds.
 
 ```cpp
 struct CollectResult {
@@ -1114,15 +1217,12 @@ const SelectionStats& lastSelectionStats() const;
 - `reuseEnabled()` reports whether exact frontier-record reuse is requested.
   An all-flat TLAS snapshot still takes the faster direct path automatically
   because it has no hierarchy walk to cache.
-- On the measured 10,000-root hierarchical workload, an admitted exact view is
-  returned by the two-entry whole-cut memo in 10-68 ns. This lookup returns a
-  view and does not iterate its 20,000 entries. A deliberately forced miss on
-  every record is 44.5-51.5% slower than selecting with reuse disabled. Keep
-  reuse for coherent views; disable it when the host knows no record can
-  survive. The continuously moving 100,000-leaf city takes 18.254-69.866 us
-  per complete payload64 database frame across the four measured machines.
-  See the [current performance report](PERFORMANCE.md) for
-  conditions.
+- An admitted exact view can return from the two-entry whole-cut memo without
+  walking the hierarchy, but returning a view does not consume its entries.
+  A forced miss performs validation, the raw walk, and record construction;
+  disable reuse when the host knows no record can survive. Measure both
+  selection and downstream iteration with the current workloads in
+  [BENCHMARKING.md](BENCHMARKING.md).
 - `setReuseEnabled()` resets damping/reuse/usage state when the value changes,
   while retaining allocations and the configured half-life.
 - `reused()` and `walked()` report instance counts from the most recent
@@ -1161,17 +1261,22 @@ void selectFrontier(const SpatialDatabase& database,
                     const Camera& camera,
                     const SelectionParams& params,
                     FrontierResult& outResult);
+
+RenderFrontierView selectRenderFrontier(
+    const SpatialDatabase& database,
+    const Camera& camera,
+    const SelectionParams& params);
 ```
 
 - **Parameters:** `database` must expose a snapshot published by
   `applyUpdates(budget)`; `camera` is raw input and is damped internally; `params`
   controls refinement, contribution culling, and current-cut fallback policy.
-  The final overload argument selects query-owned, caller-fixed, or
-  caller-owned output.
-- **Returns/results:** all overloads produce the same ordered current cut.
-  The returned view uses query-owned storage. The sink overload reports
-  truncation through `Sink::overflowed()`. The owning overload replaces
-  `outResult`'s contents.
+- **Returns/results:** the three `selectFrontier()` overloads produce the same
+  ordered handle cut in query-owned, caller-fixed, or caller-owned storage. The
+  sink overload reports truncation through `Sink::overflowed()` and the owning
+  overload replaces `outResult`'s contents. `selectRenderFrontier()` produces
+  the same logical current cut in the render-native representation described
+  below.
 - **Threading:** the function mutates the query. Do not select concurrently on
   one query. Distinct queries may read the same published database snapshot
   concurrently.
@@ -1194,6 +1299,22 @@ void selectFrontier(const SpatialDatabase& database,
   two small candidate keys and never copy a cut; damping, usage tracking,
   caller sinks, and owning-result overloads use the normal path.
 
+`selectRenderFrontier()` performs the same current-cut selection but resolves
+the result into `UserPayload` and one-byte error streams. With reuse enabled on
+a hierarchical database, resolved per-instance cuts stay in cache slabs and a
+hit appends only one compact run. Reuse-disabled and all-flat selection
+materialize a contiguous fallback with the same run interface. Runs preserve
+visible-instance order and each run preserves that instance's frontier order.
+
+The render-native call has the same database binding, camera/parameter,
+threading, and publication contracts as `selectFrontier()`. It invalidates any
+previous result view on the query and does not establish the complete handle
+frontier required by `computeFrontierRefinement()`. Use a handle selection,
+commonly on a separate streaming query, when handles and refinement groups are
+also needed. `setInstanceRenderAsUnit()` can conservatively retain a boundary
+instance's complete cached descendant cut after its root intersects the
+frustum.
+
 ### Refinement computation
 
 ```cpp
@@ -1212,6 +1333,13 @@ query. It skips TLAS discovery and top-level contribution culling, but performs
 the local frustum, placement, overlay, error-clamp, and projected-error work
 needed to produce valid child covers.
 
+The method scans current entries in order, seeds only entries whose error code
+is over the retained threshold, and emits groups breadth-first. Readiness does
+not filter candidates. Traversal stops at below-threshold nodes, terminals,
+unmounted boundaries, and the requested limits. At a mounted-definition
+boundary the mountable node remains the group parent and the mounted
+definition's visible roots are its children.
+
 - `current` must describe the complete result of this query's immediately
   preceding handle selection. A non-overflowed fixed sink can be wrapped in a
   view over its caller-owned written storage; an owning `FrontierResult` can be
@@ -1224,16 +1352,35 @@ needed to produce valid child covers.
   threshold-directed topology.
 - `maxNodes` limits the total child entries stored. A group is committed only
   if all of its children fit, so the result never contains a partial coverage
-  group. `UINT32_MAX` removes this bound.
+  group. Zero is valid and `UINT32_MAX` removes this bound.
 - The method is read-only and policy-free: it does not alter readiness, choose
   a target cut, or manage external resources.
 - A current entry already finer than the implicit threshold target is never
   coarsened. Unmounted topology is not invented.
 
+Repeated refinement computations from the same retained `current` storage are
+allowed until the query selects again or the database snapshot changes. Each
+call invalidates the preceding `FrontierRefinementView`, not the source handle
+cut.
+
 `depthLimitReached()` is conservative at the horizon: it becomes true when an
 over-threshold boundary entry has finer mounted topology. Child visibility
 beyond the requested depth is deliberately not evaluated merely to refine this
 diagnostic.
+
+`complete()` reports only whether the depth or node bound truncated known
+mounted refinement. It does not report resource readiness or missing external
+topology. `empty()` can therefore mean that current is already at/below the
+threshold target, that every eligible branch is terminal or unmounted, or that
+the first complete group did not fit; inspect both limit flags. `threshold()`
+is the exact retained selection threshold for decoding the fresh child error
+codes.
+
+Unlimited traversal is proportional to the visible threshold-directed mounted
+topology below current. `maxNodes` bounds emitted child storage, but the method
+still scans the supplied current cut and inspects the group that encounters the
+limit. Supply both finite depth and node bounds for a tightly bounded planning
+horizon.
 
 To derive a candidate cut, start with `current`, then apply chosen groups only
 when their parent is present in that cut. The application owns byte budgets,
@@ -1256,9 +1403,9 @@ any recurring-view output snapshots and retained refinement buffers.
 
 ```cpp
 struct TerminalRenderRun {
-    const UserPayload* payloads;
-    uint32_t count;
-    uint32_t instanceAndError;
+    const UserPayload* payloads = nullptr;
+    uint32_t count = 0;
+    uint32_t instanceAndError = kInvalidInstanceId;
 
     InstanceId instance() const;
     uint8_t errorCode() const;
@@ -1267,6 +1414,9 @@ struct TerminalRenderRun {
 
 class TerminalRenderView {
 public:
+    TerminalRenderView();
+    TerminalRenderView(std::span<const TerminalRenderRun> runs,
+                       size_t leafCount);
     std::span<const TerminalRenderRun> runs() const;
     size_t size() const;
     size_t segmentCount() const;
@@ -1274,26 +1424,33 @@ public:
 };
 
 struct TerminalInstanceCluster {
-    uint32_t first;
-    uint32_t count;
+    uint32_t first = 0;
+    uint32_t count = 0;
 };
 
 struct TerminalInstanceBatch {
     SubtreeHandle definition;
-    AABB localBounds;
+    AABB localBounds = AABB::empty();
     std::span<const float4> positions;
     std::span<const YawRotation> yaws;
     std::span<const TerminalInstanceCluster> clusters;
     std::span<const AABB> clusterBounds;
-    InstanceId firstInstance;
-    float scale;
-    uint32_t mask;
-    bool yawInvariantBounds;
-    bool renderAsUnit;
+    InstanceId firstInstance = 0;
+    float scale = 1.0f;
+    uint32_t mask = ~0u;
+    bool yawInvariantBounds = false;
+    bool renderAsUnit = true;
 };
 
 class TerminalRenderQuery {
 public:
+    TerminalRenderQuery();
+    ~TerminalRenderQuery();
+    TerminalRenderQuery(TerminalRenderQuery&&) noexcept;
+    TerminalRenderQuery& operator=(TerminalRenderQuery&&) noexcept;
+    TerminalRenderQuery(const TerminalRenderQuery&) = delete;
+    TerminalRenderQuery& operator=(const TerminalRenderQuery&) = delete;
+
     TerminalRenderView select(
         const SpatialDatabase& database,
         const Camera& camera,
@@ -1572,6 +1729,19 @@ void moveInstance(InstanceHandle instance, const Transform& transform);
   reciprocal. The transformed root bound and error must remain representable
   as finite floats.
 
+```cpp
+void setInstanceRenderAsUnit(InstanceHandle instance, bool enabled = true);
+```
+
+`setInstanceRenderAsUnit()` changes descendant frustum-culling policy for the
+renderer-native query paths. Once the TLAS accepts an opted-in root,
+`selectRenderFrontier()` may retain that instance's complete cached LOD cut,
+and `TerminalRenderQuery::select(..., coarsenRenderUnits=true)` may return its
+complete terminal range. LOD/error selection is unchanged; only descendant
+frustum rejection is conservatively coarsened. This is useful for small actors
+whose descendants would otherwise churn at a frustum edge. The call is a no-op
+for a stale instance. Pass `false` to restore exact descendant culling.
+
 ### `MotionGroup`
 
 ```cpp
@@ -1808,6 +1978,25 @@ and is therefore unambiguous. An entry produced by a selection resolves
 throughout the same published read interval; failure is relevant when the
 application retains a handle across a later writer phase.
 
+```cpp
+std::span<ResolvedFrontierEntry> resolveFrontier(
+    std::span<const FrontierEntry> cut,
+    std::span<ResolvedFrontierEntry> storage) const;
+```
+
+`resolveFrontier()` converts a complete or partial handle span into
+caller-owned renderer-facing entries. It preserves order and copies each
+entry's packed instance/error metadata unchanged. Consecutive handles from one
+mounted placement share slot/generation validation and stream directly from
+the immutable payload array; TLAS roots retain scalar generation validation.
+Stale handles write `kInvalidPayload` rather than touching recycled state.
+
+When `storage.size() < cut.size()`, the method returns an empty span and writes
+nothing. Otherwise it writes exactly `cut.size()` elements and returns that
+prefix of `storage`. Input and output storage must remain valid for the call and
+must not overlap database mutation. For cached zero-copy renderer submission,
+use `SpatialQuery::selectRenderFrontier()` instead.
+
 ### Per-instance bounds overrides
 
 ```cpp
@@ -1957,6 +2146,64 @@ With `FRONTIER_DEBUG_TOOLS` enabled, the following on-demand inspection API is
 also available:
 
 ```cpp
+enum class TlasDebugBoxKind : uint8_t {
+    Root,
+    Internal,
+    Instance,
+};
+
+struct QueryCacheDebugSummary {
+    size_t bytes = 0;
+    uint32_t recordSlots = 0;
+    uint32_t liveEntries = 0;
+    uint32_t garbageEntries = 0;
+    uint32_t slabEntries = 0;
+    uint32_t reused = 0;
+    uint32_t walked = 0;
+    uint32_t epoch = 0;
+    float positionTravel = 0.0f;
+    float projectionTravel = 0.0f;
+    bool primed = false;
+    bool wholeReusable = false;
+    bool reuseEnabled = false;
+    bool mountUsageEnabled = false;
+};
+
+struct TlasDebugSummary {
+    size_t bytes = 0;
+    uint32_t allocatedNodes = 0;
+    uint32_t activeNodes = 0;
+    uint32_t freeNodes = 0;
+    uint32_t instanceCount = 0;
+    uint32_t looseInstanceCount = 0;
+    uint32_t internalLaneCount = 0;
+    uint32_t instanceLaneCount = 0;
+    uint32_t maxDepth = 0;
+    uint32_t editsSinceRebuild = 0;
+    uint32_t rebuildBaselineInstances = 0;
+    uint32_t maintenanceNodesPending = 0;
+    float averageLaneOccupancy = 0.0f;
+    float areaGrowthRatio = 0.0f;
+    bool buildRequired = false;
+    bool topologyRebuildRecommended = false;
+    TlasQuality activeQuality = TlasQuality::SpatialBins;
+    TlasQuality configuredQuality = TlasQuality::BinnedSAH;
+};
+
+struct TlasDebugBox {
+    AABB bounds = AABB::empty();
+    InstanceId instance = kInvalidInstanceId;
+    uint32_t depth = 0;
+    TlasDebugBoxKind kind = TlasDebugBoxKind::Root;
+    bool loose = false;
+};
+
+struct LooseInstanceDebugBounds {
+    InstanceHandle instance{};
+    AABB envelope = AABB::empty();
+    AABB exact = AABB::empty();
+};
+
 QueryCacheDebugSummary SpatialQuery::debugCacheSummary() const;
 
 TlasDebugSummary SpatialDatabase::debugTlasSummary() const;
@@ -1978,6 +2225,13 @@ lanes encountered earlier. Each record retains its actual depth. TLAS boxes and
 exact/envelope bounds are returned in world space, including deferred
 population translation. Call these methods only for a published database
 snapshot; their work is performed only when explicitly requested.
+
+`QueryCacheDebugSummary` reports retained bytes and slab occupancy, the most
+recent reused/walked counts, current epoch/travel budgets, and active query
+modes. `TlasDebugBox::instance` is valid only when `kind ==
+TlasDebugBoxKind::Instance`; `depth` is the box's actual hierarchy depth and
+`loose` marks a conservative motion envelope. `LooseInstanceDebugBounds`
+pairs each loose envelope with the exact current root bound.
 
 ## 11. Threading contract
 

@@ -293,29 +293,16 @@ records the chosen CPU, capacity, maximum frequency, governor, warmup, and
 before/after frequency, load, and thermal snapshots in `manifest.txt`,
 `REPORT.md`, and `performance_state.txt`.
 
-The current primary registry contains 85 cases per payload build. With five
-0.5-second-minimum repetitions plus correctness and machine characterization,
-a complete report normally takes roughly 10-20 minutes depending on build and
-host speed.
-
-The current analyzed release snapshot covers M2 Max, Cortex-A72 SBC,
-i9-12900K, and EPYC 9654 format-v3 results from commit `63f2e3f`; see
-[PERFORMANCE.md](PERFORMANCE.md). It
-uses median real time. All four primary reports contain 85 medians for both
-payload widths and pass all 452 Debug tests.
-
-At a high level, its payload64 continuously moving 100,000-leaf city completes
-actor motion, publication, and exact selection in 18.254-69.866 us per frame;
-the isolated motion/publication phase takes 1.953-8.140 us. An admitted exact
-view in the separate recurring-camera control returns from the two-entry memo
-in 10-68 ns, but that lookup neither consumes the 20,000-entry view nor models
-continuous camera motion. These ranges span very different processors and are
-portability evidence, not a cross-machine ranking or latency guarantee.
+The collector derives its inventory from each executable rather than a
+hard-coded case count. With the default repetitions plus correctness and
+machine characterization, a complete report takes minutes; exact duration
+depends on the current registry, compiler, and host speed.
 
 The format-v3 comprehensive collector currently inventories `frontier_bench`
 and `frontier_bench_payload32`. It does not run the isolated
-`frontier_submission_bench` pair, so the current four-machine snapshot does
-not claim cross-platform downstream payload-scan timings.
+`frontier_submission_bench` pair, so a comprehensive report does not include
+downstream payload-scan timings unless the caller runs and records those
+executables separately.
 
 ## macOS hardware counters
 

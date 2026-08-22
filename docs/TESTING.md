@@ -129,15 +129,12 @@ self-describing after collection.
 `frontier_machine_bench` characterizes kernels and the machine independently.
 See [BENCHMARKING.md](BENCHMARKING.md) for the cases and collection procedure.
 
-The current format-v3 release snapshot contains all 85 inventoried primary
-cases for both payload widths on each of four machines, and every machine
-passed the 452-test payload32/payload64 by BVH4/BVH8 Debug matrix. Its
-100,000-leaf live-city results, representative generic controls, phase split,
-and measurement caveats are in
-[PERFORMANCE.md](PERFORMANCE.md).
-`BM_LiveCityRenderSubmissionFrame` is linked only into the isolated submission
-executables and is not currently collected by the comprehensive four-device
-runner; the snapshot labels the SBC-only downstream result explicitly.
+The comprehensive collector records the exact benchmark and test inventories
+for the revision it builds and verifies that every listed benchmark appears in
+the result JSON. `BM_LiveCityRenderSubmissionFrame` remains in the isolated
+submission executables rather than the comprehensive collector, so measure
+downstream payload scanning explicitly when it is part of the performance
+question.
 
 Benchmarks are measurements, not correctness tests. Repository performance
 runners build Release with `FRONTIER_STATS=OFF`,

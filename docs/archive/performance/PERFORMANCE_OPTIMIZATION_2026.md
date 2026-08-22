@@ -461,7 +461,7 @@ portability evidence, not an independent recalculation of the historical
 22.7% score above or the later direct 9.72-9.92x round-8 city result. Complete
 per-machine selection, motion, assembly, payload-width, kernel, lifecycle, and
 measurement-caveat tables are in
-[PERFORMANCE.md](../../PERFORMANCE.md).
+[the 2026-08-18 performance snapshot](../PERFORMANCE_2026-08-18.md).
 
 ## Original round final validation
 

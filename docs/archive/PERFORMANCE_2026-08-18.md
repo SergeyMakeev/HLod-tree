@@ -1,4 +1,9 @@
-# Current performance
+# Performance snapshot — 2026-08-18
+
+> Historical record for Frontier commit `63f2e3f`. The public selection API,
+> benchmark inventory, and test matrix have changed since this capture. Do not
+> use these values as measurements of the current code. See
+> [the benchmarking guide](../BENCHMARKING.md) to measure the present revision.
 
 Measurements were captured on 2026-08-18. This report describes Frontier
 commit `63f2e3f`. All four format-v3 bundles contain the same source and the

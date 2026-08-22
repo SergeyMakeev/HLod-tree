@@ -176,9 +176,10 @@ exhaustive threshold-directed closure.
 
 ## TLAS maintenance
 
-Initial builds and `optimize(TopologyAndLayout)` use the configured
-`BinnedSAH`, `Median`, or `SpatialBins` tier. `optimize(TopologyOnly)` uses the
-SpatialBins builder and does not change dense instance layout. Incremental
+Initial builds and `optimize(OptimizationMode::TopologyAndLayout)` use the
+configured `BinnedSAH`, `Median`, or `SpatialBins` tier.
+`optimize(OptimizationMode::TopologyOnly)` uses the SpatialBins builder and
+does not change dense instance layout. Incremental
 insertion descends by least bound growth and splits a full leaf. Removal
 invalidates a lane. Instance motion updates exact dense instance state
 immediately but defers TLAS writes to `applyUpdates(maintenanceNodeBudget)`.
@@ -201,10 +202,11 @@ queue.
 
 Population drift, edit fraction, and current lane-area growth set
 `UpdateReport::topologyRebuildRecommended`; they never schedule an implicit
-topology rebuild. The application calls `optimize(TopologyOnly)` for an exact
-linear-pass spatial-bin rebuild that preserves dense layout, or
-`optimize(TopologyAndLayout)` for configured-quality rebuild plus compaction
-and spatial reordering.
+topology rebuild. The application calls
+`optimize(OptimizationMode::TopologyOnly)` for an exact linear-pass spatial-bin
+rebuild that preserves dense layout, or
+`optimize(OptimizationMode::TopologyAndLayout)` for configured-quality rebuild
+plus compaction and spatial reordering.
 
 The large-batch path reuses mutually exclusive build scratch: one 32-bit array
 holds pending dense instance ids and the temporary DFS stack, while another is
@@ -217,8 +219,8 @@ actor-motion publication pass.
 An 80-byte `Instance` keeps transform, exact world bound, maximum root error,
 mask, mounted-root slot, generation, overlay-list index, TLAS back-pointer, and
 dense-list index together. Public ids map through stable handle-to-dense tables.
-`optimize(TopologyAndLayout)` compacts dead dense slots and rewrites physical
-back-pointers while preserving those ids.
+`optimize(OptimizationMode::TopologyAndLayout)` compacts dead dense slots and
+rewrites physical back-pointers while preserving those ids.
 
 Rigid actor animation has a separate archive-level publication module.
 `RigidMotionGroup` caches the same caller-to-dense mapping plus a proof that all
@@ -261,51 +263,25 @@ barrier. It flushes bound edits, publishes motion, performs up to the requested
 amount of optional TLAS tightening, and advances the collection epoch.
 After publication, distinct queries may read concurrently until the next write.
 
-## Memory and performance checkpoints
+## Memory and performance characteristics
 
-The city/house benchmark compares 400 houses with eight fully refined detail
-nodes each. The 2026-08-18 cross-platform Release reports measured these
-eight-byte-payload footprints:
+Definition sharing reduces immutable topology and payload duplication but adds
+mounted-placement records and an indirection at definition boundaries. The
+placement-state counter includes shared readiness/coverage words, retained
+private coverage slabs, transforms, links, stamps, and slab capacity; immutable
+registered `SubtreeBytes` are reported separately by the application.
 
-| Native layout | Representation | Immutable definitions | Placement state | Total retained | Reduction vs flat |
-| --- | --- | ---: | ---: | ---: | ---: |
-| BVH4 | Flattened | 200.6 KiB | 7.2 KiB | 207.8 KiB | - |
-| BVH4 | Assembled | 23.1 KiB | 54.1 KiB | 77.2 KiB | 62.8% |
-| BVH8 | Flattened | 198.8 KiB | 7.2 KiB | 206.0 KiB | - |
-| BVH8 | Assembled | 22.9 KiB | 50.4 KiB | 73.3 KiB | 64.4% |
+Canonical wide-lane bounds dominate immutable topology storage. Every real
+node bound is stored once in its parent's `WideBlock` lane, with the aggregate
+definition bound in the serialized header; there is no duplicate scalar bound
+stream. A BVH4 node uses a 128-byte hot bound block plus 32 bytes of cold
+metadata. BVH8 uses 256 hot plus 64 cold bytes. The wider layout can reduce
+tree depth while increasing cache footprint, so neither width nor reusable
+assembly has a universal traversal advantage.
 
-Assembly also reduced complete construction latency by 60-83% across the M2
-Max, Cortex-A72 SBC, i9-12900K, and EPYC 9654 reports. Once the exact assembly
-cut was admitted to the whole-cut memo, flat and assembled lookup medians
-differed by at most 0.3 ns. Raw uncached traversal remained target-sensitive:
-assembly was 37% faster on the EPYC and 15-46% slower on the other machines.
-Definition sharing reduces the immutable working set but adds mount
-indirection, so shipping targets should measure that uncached balance rather
-than assuming one direction. A recurring exact 10,000-root view is now a
-10-68 ns whole-cut memo lookup, but that does not consume its 20,000 entries
-and is not a continuous-camera measurement. The realistic 100,000-leaf city
-times continuous camera motion, 1,100 moving roots, publication, and exact
-selection directly at 18.254-69.866 us per payload64 frame; motion and
-publication alone take 1.953-8.140 us. See the full
-[current performance report](PERFORMANCE.md).
-
-The placement-state counter includes definition-local shared
-readiness/coverage words and retained private coverage slabs; it is
-intentionally larger for the 400 mounted house placements even though their
-immutable definition bytes are shared.
-
-Canonical wide-lane bounds are responsible for much of the current immutable
-footprint. Every real node bound is stored once in its parent's `WideBlock`
-lane, with the aggregate definition bound in the serialized header; there is
-no duplicate scalar bound stream. A BVH4 node uses a 128-byte hot bound block
-plus 32 bytes of cold metadata; BVH8 uses 256 plus 64 bytes. In the current
-payload64 400-house workload, immutable definition state is 200.6 KiB when
-flattened and 22.9-23.1 KiB when the house definition is shared. Updating and
-flushing 256 copy-on-write bounds takes 3.574-25.649 us across the four
-measured machines.
-
-These numbers are implementation checkpoints rather than guarantees for a new
-scene or machine. Reproduce them with the matched profiles in
-[BENCHMARKING.md](BENCHMARKING.md); historical API and layout measurements are
-kept in [HISTORY.md](HISTORY.md), the [archive](archive/README.md), and
-`bench_results/`.
+`SpatialQuery::bytes()`, `SpatialDatabase::subtreeInstanceStateBytes()`,
+`overlayBytes()`, and `instanceOrientationStateBytes()` expose retained runtime
+capacity. Benchmark the current code and complete result-consumption path on
+each shipping target with [BENCHMARKING.md](BENCHMARKING.md). Historical
+measurements are kept only in the [documentation archive](archive/README.md)
+and `bench_results/`.

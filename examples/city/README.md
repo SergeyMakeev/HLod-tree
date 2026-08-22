@@ -25,11 +25,14 @@ skyscraper fallback costs 0.5 MiB, while its three max-detail leaf resources
 total 10 MiB. Sizes apply to reusable representation resources, so every
 placement of a registered definition shares the same residency. Only the five
 coarsest fallback resources start resident.
-`computeFrontierRefinement()` analyzes the complete ideal cut each frame, while
-the streaming simulator requests only immediate complete-child groups. Groups
-become ready atomically after the configured latency, so Frontier advances the
-current renderable cut toward the ideal without ever exposing a partial sibling
-transition.
+The sample calls `computeFrontierRefinement()` with
+`SpatialQuery::UnlimitedDepth` and derives
+an application-defined exhaustive quality endpoint from the returned group
+forest. The UI labels that endpoint **ideal**; it is sample terminology, not a
+second cut returned by Frontier. The streaming simulator requests only
+immediate complete-child groups. Groups become ready atomically after the
+configured latency, so Frontier advances the current renderable cut toward the
+quality endpoint without exposing a partial sibling transition.
 
 The UI is split into independent, movable ImGui windows so diagnostics do not
 cover one another. The global **Debug windows** menu in the top bar toggles
@@ -156,9 +159,6 @@ build-city/examples/city/frontier_city --streaming-orbit-self-test
 `--streaming-test-budget=<MiB>` overrides the budget, and
 `--streaming-test-viewport-height=<pixels>` runs screen-error selection at a
 chosen pixel density without allocating a correspondingly large framebuffer.
-The older
-`--streaming-self-test` and `--streaming-dynamic-self-test` spellings remain
-aliases for this regression.
 
 The process exits nonzero on a dominant fallback, excess churn, or budget
 violation and prints focal LOD changes, dominant-fallback events, replacement
