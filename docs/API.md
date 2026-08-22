@@ -576,6 +576,12 @@ deliberately ignored: a group describes a possible finer cover, and the
 application decides which missing resources to request. The walk stops at
 below-threshold entries, terminal nodes, and unmounted boundaries.
 
+![Refinement depth, breadth-first group order, and limits](images/refinement/refinement-depth.svg)
+
+Depth zero is the supplied current cut; the first replacements are depth 1.
+The diagram's `g0`, `g1`, `g2`, `g3` order also shows that all shallower
+eligible parents are visited before a deeper parent.
+
 Each group has the following contract:
 
 - `parent(group)` is an existing node. At depth 1 it is in `cut`; at greater
@@ -642,6 +648,12 @@ To construct a candidate cut, begin with `cut` and replace a parent only with
 its entire child span. A deeper group can be applied only after the groups that
 make its parent present. This parent-before-child rule allows a planner to skip
 an intermediate representation while preserving complete coverage:
+
+![Application-side propagation of refinement groups](images/refinement/refinement-propagation.svg)
+
+The candidate cut in the diagram is application-owned planning state. The
+renderable current cut changes only after the required child cover becomes
+ready and a later `selectFrontier()` call observes that readiness.
 
 ```cpp
 CandidateCut candidate(cut.entries);

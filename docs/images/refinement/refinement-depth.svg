@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800"
+     viewBox="0 0 1200 800" role="img"
+     aria-labelledby="title description">
+  <title id="title">Refinement depth, breadth-first group order, and limits</title>
+  <desc id="description">
+    A hierarchy begins at three current-frontier entries at depth zero.
+    Complete visible child groups are returned breadth-first at depths one and
+    two. A maxDepth of two prevents groups at depth three from being emitted.
+    A separate callout explains that maxNodes omits a whole group when all of
+    its children do not fit.
+  </desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" class="arrow-head"/>
+    </marker>
+    <style>
+      .canvas { fill: #ffffff; }
+      .band-a { fill: #f8fafc; }
+      .band-b { fill: #f1f5f9; }
+      .ink { fill: #172033; }
+      .muted { fill: #526077; }
+      .edge { fill: none; stroke: #64748b; stroke-width: 2; marker-end: url(#arrow); }
+      .edge-ghost { fill: none; stroke: #94a3b8; stroke-width: 2; stroke-dasharray: 7 6; }
+      .arrow-head { fill: #64748b; }
+      .current { fill: #dbeafe; stroke: #2563eb; stroke-width: 2.5; }
+      .returned { fill: #dcfce7; stroke: #16a34a; stroke-width: 2.5; }
+      .stopped { fill: #f1f5f9; stroke: #64748b; stroke-width: 2; }
+      .ghost { fill: #f8fafc; stroke: #94a3b8; stroke-width: 2; stroke-dasharray: 6 5; }
+      .hot { stroke: #ea580c; stroke-width: 4; }
+      .group { fill: #dcfce7; fill-opacity: .28; stroke: #16a34a; stroke-width: 1.5; stroke-dasharray: 7 5; }
+      .horizon { stroke: #dc2626; stroke-width: 2.5; stroke-dasharray: 10 7; }
+      .callout { fill: #fff7ed; stroke: #ea580c; stroke-width: 1.5; }
+      .legend-box { fill: #ffffff; stroke: #cbd5e1; stroke-width: 1.5; }
+      text { font-family: Inter, "Segoe UI", Arial, sans-serif; }
+      .title { font-size: 24px; font-weight: 500; }
+      .subtitle { font-size: 15px; }
+      .depth { font-size: 16px; font-weight: 500; }
+      .group-label { font-size: 14px; font-weight: 500; fill: #08783f; }
+      .node-name { font-size: 17px; font-weight: 500; text-anchor: middle; }
+      .node-state { font-size: 11px; text-anchor: middle; }
+      .note { font-size: 14px; }
+      .small { font-size: 12px; }
+    </style>
+    <style media="(prefers-color-scheme: dark)">
+      .canvas { fill: #0f172a; }
+      .band-a { fill: #111c31; }
+      .band-b { fill: #172136; }
+      .ink { fill: #e5edf8; }
+      .muted { fill: #a9b7ca; }
+      .edge { stroke: #94a3b8; }
+      .edge-ghost { stroke: #64748b; }
+      .arrow-head { fill: #94a3b8; }
+      .current { fill: #183b68; stroke: #60a5fa; }
+      .returned { fill: #123f32; stroke: #4ade80; }
+      .stopped { fill: #273449; stroke: #94a3b8; }
+      .ghost { fill: #172136; stroke: #64748b; }
+      .hot { stroke: #fb923c; }
+      .group { fill: #164e3b; stroke: #4ade80; }
+      .group-label { fill: #86efac; }
+      .horizon { stroke: #f87171; }
+      .callout { fill: #3a271d; stroke: #fb923c; }
+      .legend-box { fill: #111c31; stroke: #475569; }
+    </style>
+  </defs>
+
+  <rect class="canvas" width="1200" height="800"/>
+  <text class="title ink" x="40" y="42">Depth is counted below the current frontier</text>
+  <text class="subtitle muted" x="40" y="68">
+    Complete visible-child groups are emitted breadth-first: g0, g1, then g2, g3.
+  </text>
+
+  <rect class="band-a" x="30" y="88" width="1140" height="130" rx="8"/>
+  <rect class="band-b" x="30" y="218" width="1140" height="170" rx="8"/>
+  <rect class="band-a" x="30" y="388" width="1140" height="170" rx="8"/>
+  <rect class="band-b" x="30" y="558" width="1140" height="116" rx="8"/>
+
+  <text class="depth ink" x="52" y="116">depth 0</text>
+  <text class="small muted" x="52" y="137">current cut</text>
+  <text class="depth ink" x="52" y="246">depth 1</text>
+  <text class="depth ink" x="52" y="416">depth 2</text>
+  <text class="depth muted" x="52" y="590">depth 3</text>
+  <text class="small muted" x="52" y="611">not emitted</text>
+
+  <!-- Hierarchy edges are drawn behind the nodes and group boxes. -->
+  <path class="edge" d="M245 184 C235 226 210 256 195 282"/>
+  <path class="edge" d="M255 184 C270 226 292 256 305 282"/>
+  <path class="edge" d="M914 184 C890 226 852 256 835 282"/>
+  <path class="edge" d="M925 184 L950 282"/>
+  <path class="edge" d="M936 184 C988 226 1045 256 1065 282"/>
+  <path class="edge" d="M185 350 C175 392 163 420 155 451"/>
+  <path class="edge" d="M205 350 C220 392 237 420 245 451"/>
+  <path class="edge" d="M940 350 C915 392 895 420 885 451"/>
+  <path class="edge" d="M960 350 C985 392 1005 420 1018 451"/>
+  <path class="edge-ghost" d="M145 519 C138 557 130 584 125 607"/>
+  <path class="edge-ghost" d="M165 519 C178 557 186 584 190 607"/>
+  <path class="edge-ghost" d="M1008 519 C995 557 985 584 980 607"/>
+  <path class="edge-ghost" d="M1028 519 C1040 557 1047 584 1050 607"/>
+
+  <!-- Complete sibling groups. -->
+  <rect class="group" x="123" y="251" width="255" height="119" rx="12"/>
+  <text class="group-label" x="141" y="273">g0 · depth 1 · 2 children</text>
+  <rect class="group" x="774" y="251" width="362" height="119" rx="12"/>
+  <text class="group-label" x="792" y="273">g1 · depth 1 · 3 children</text>
+  <rect class="group" x="91" y="421" width="220" height="119" rx="12"/>
+  <text class="group-label" x="109" y="443">g2 · depth 2 · 2 children</text>
+  <rect class="group" x="818" y="421" width="273" height="119" rx="12"/>
+  <text class="group-label" x="836" y="443">g3 · depth 2 · 2 children</text>
+
+  <!-- Current frontier. Orange outlines are over-threshold seeds. -->
+  <circle class="current hot" cx="245" cy="150" r="34"/>
+  <text class="node-name ink" x="245" y="149">P</text>
+  <text class="node-state ink" x="245" y="166">&gt; T</text>
+  <circle class="current" cx="585" cy="150" r="34"/>
+  <text class="node-name ink" x="585" y="149">Q</text>
+  <text class="node-state ink" x="585" y="166">≤ T · stop</text>
+  <circle class="current hot" cx="925" cy="150" r="34"/>
+  <text class="node-name ink" x="925" y="149">R</text>
+  <text class="node-state ink" x="925" y="166">&gt; T</text>
+
+  <!-- Depth-one children. -->
+  <circle class="returned hot" cx="195" cy="316" r="34"/>
+  <text class="node-name ink" x="195" y="315">A</text>
+  <text class="node-state ink" x="195" y="332">&gt; T</text>
+  <circle class="stopped" cx="305" cy="316" r="34"/>
+  <text class="node-name ink" x="305" y="315">B</text>
+  <text class="node-state ink" x="305" y="332">terminal</text>
+
+  <circle class="stopped" cx="835" cy="316" r="34"/>
+  <text class="node-name ink" x="835" y="315">C</text>
+  <text class="node-state ink" x="835" y="332">≤ T</text>
+  <circle class="returned hot" cx="950" cy="316" r="34"/>
+  <text class="node-name ink" x="950" y="315">D</text>
+  <text class="node-state ink" x="950" y="332">&gt; T</text>
+  <circle class="stopped" cx="1065" cy="316" r="34"/>
+  <text class="node-name ink" x="1065" y="315">E</text>
+  <text class="node-state ink" x="1065" y="332">unmounted</text>
+
+  <!-- Depth-two children. -->
+  <circle class="returned hot" cx="155" cy="485" r="34"/>
+  <text class="node-name ink" x="155" y="484">A1</text>
+  <text class="node-state ink" x="155" y="501">&gt; T</text>
+  <circle class="stopped" cx="245" cy="485" r="34"/>
+  <text class="node-name ink" x="245" y="484">A2</text>
+  <text class="node-state ink" x="245" y="501">≤ T</text>
+
+  <circle class="stopped" cx="885" cy="485" r="34"/>
+  <text class="node-name ink" x="885" y="484">D1</text>
+  <text class="node-state ink" x="885" y="501">terminal</text>
+  <circle class="returned hot" cx="1018" cy="485" r="34"/>
+  <text class="node-name ink" x="1018" y="484">D2</text>
+  <text class="node-state ink" x="1018" y="501">&gt; T</text>
+
+  <!-- Depth horizon and intentionally omitted topology. -->
+  <line class="horizon" x1="82" y1="551" x2="1140" y2="551"/>
+  <rect class="canvas" x="431" y="537" width="338" height="28" rx="5"/>
+  <text class="note ink" x="600" y="556" text-anchor="middle">
+    maxDepth = 2 · deeper groups are not emitted
+  </text>
+  <circle class="ghost" cx="125" cy="635" r="26"/>
+  <circle class="ghost" cx="190" cy="635" r="26"/>
+  <circle class="ghost" cx="980" cy="635" r="26"/>
+  <circle class="ghost" cx="1050" cy="635" r="26"/>
+  <text class="small muted" x="600" y="649" text-anchor="middle">
+    A1 and D2 have finer mounted topology, so depthLimitReached() is true.
+  </text>
+
+  <!-- Legend and node-budget example. -->
+  <rect class="legend-box" x="40" y="704" width="466" height="67" rx="9"/>
+  <circle class="current" cx="70" cy="737" r="15"/>
+  <text class="small ink" x="94" y="741">current entry</text>
+  <circle class="returned" cx="205" cy="737" r="15"/>
+  <text class="small ink" x="229" y="741">returned child</text>
+  <circle class="returned hot" cx="357" cy="737" r="15"/>
+  <text class="small ink" x="382" y="741">over threshold</text>
+
+  <rect class="callout" x="526" y="692" width="634" height="91" rx="10"/>
+  <text class="note ink" x="546" y="719" font-weight="500">maxNodes is group-atomic</text>
+  <text class="note ink" x="546" y="744">
+    Example: with maxNodes = 8, g0 + g1 + g2 use 7 entries.
+  </text>
+  <text class="note ink" x="546" y="766">
+    g3 needs 2, so all of g3 is omitted and nodeLimitReached() becomes true.
+  </text>
+</svg>

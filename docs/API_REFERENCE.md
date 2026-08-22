@@ -1386,6 +1386,10 @@ To derive a candidate cut, start with `current`, then apply chosen groups only
 when their parent is present in that cut. The application owns byte budgets,
 priorities, async request state, and aggregation across cameras.
 
+The API guide includes diagrams of [breadth-first depth and limit
+semantics](API.md#bounded-refinement-analysis) and [application-side,
+frame-to-frame propagation](API.md#applying-refinement-groups).
+
 ### Reset and storage
 
 ```cpp

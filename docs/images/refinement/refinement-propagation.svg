@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760"
+     viewBox="0 0 1200 760" role="img"
+     aria-labelledby="title description">
+  <title id="title">Application-side propagation of frontier refinement</title>
+  <desc id="description">
+    The current cut is analyzed into complete parent-to-child groups without
+    mutating the renderable frontier. An application candidate cut replaces
+    one present parent with all children in a chosen group. In the asynchronous
+    frame loop, the old parent remains rendered until the complete child cover
+    is ready; a later selectFrontier call then advances the current cut.
+  </desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" class="arrow-head"/>
+    </marker>
+    <style>
+      .canvas { fill: #ffffff; }
+      .panel { fill: #f8fafc; stroke: #cbd5e1; stroke-width: 1.5; }
+      .analysis { fill: #f0fdf4; stroke: #16a34a; stroke-width: 1.5; }
+      .frame { fill: #eff6ff; stroke: #3b82f6; stroke-width: 1.5; }
+      .wait { fill: #fff7ed; stroke: #ea580c; stroke-width: 1.5; }
+      .ink { fill: #172033; }
+      .muted { fill: #526077; }
+      .blue { fill: #dbeafe; stroke: #2563eb; stroke-width: 2; }
+      .green { fill: #dcfce7; stroke: #16a34a; stroke-width: 2; }
+      .yellow { fill: #fef3c7; stroke: #d97706; stroke-width: 2; }
+      .token { fill: #ffffff; stroke: #64748b; stroke-width: 1.5; }
+      .token-new { fill: #dcfce7; stroke: #16a34a; stroke-width: 1.5; }
+      .connector { fill: none; stroke: #64748b; stroke-width: 2.2; marker-end: url(#arrow); }
+      .tree-edge { fill: none; stroke: #64748b; stroke-width: 2; }
+      .arrow-head { fill: #64748b; }
+      .atomic { fill: none; stroke: #16a34a; stroke-width: 1.5; stroke-dasharray: 6 4; }
+      .rule { stroke: #cbd5e1; stroke-width: 1.5; }
+      text { font-family: Inter, "Segoe UI", Arial, sans-serif; }
+      .title { font-size: 24px; font-weight: 500; }
+      .subtitle { font-size: 15px; }
+      .heading { font-size: 17px; font-weight: 500; }
+      .node { font-size: 16px; font-weight: 500; text-anchor: middle; }
+      .label { font-size: 14px; }
+      .small { font-size: 12px; }
+      .code { font-family: "Cascadia Mono", Consolas, monospace; font-size: 13px; }
+    </style>
+    <style media="(prefers-color-scheme: dark)">
+      .canvas { fill: #0f172a; }
+      .panel { fill: #111c31; stroke: #475569; }
+      .analysis { fill: #123f32; stroke: #4ade80; }
+      .frame { fill: #183b68; stroke: #60a5fa; }
+      .wait { fill: #3a271d; stroke: #fb923c; }
+      .ink { fill: #e5edf8; }
+      .muted { fill: #a9b7ca; }
+      .blue { fill: #183b68; stroke: #60a5fa; }
+      .green { fill: #123f32; stroke: #4ade80; }
+      .yellow { fill: #49361b; stroke: #fbbf24; }
+      .token { fill: #172136; stroke: #94a3b8; }
+      .token-new { fill: #123f32; stroke: #4ade80; }
+      .connector, .tree-edge { stroke: #94a3b8; }
+      .arrow-head { fill: #94a3b8; }
+      .atomic { stroke: #4ade80; }
+      .rule { stroke: #475569; }
+    </style>
+  </defs>
+
+  <rect class="canvas" width="1200" height="760"/>
+  <text class="title ink" x="40" y="42">Refinement is analysis; the application propagates chosen groups</text>
+  <text class="subtitle muted" x="40" y="68">
+    Frontier returns legal parent → complete-child replacements. It does not install a second cut.
+  </text>
+
+  <!-- Phase 1: source current cut. -->
+  <rect class="panel" x="40" y="100" width="255" height="295" rx="12"/>
+  <text class="heading ink" x="62" y="132">1 · Current cut</text>
+  <text class="small muted" x="62" y="154">depth 0 · renderable now</text>
+  <circle class="blue" cx="168" cy="214" r="38"/>
+  <text class="node ink" x="168" y="219">P</text>
+  <rect class="token" x="74" y="286" width="54" height="40" rx="7"/>
+  <text class="node ink" x="101" y="312">P</text>
+  <rect class="token" x="141" y="286" width="54" height="40" rx="7"/>
+  <text class="node ink" x="168" y="312">Q</text>
+  <rect class="token" x="208" y="286" width="54" height="40" rx="7"/>
+  <text class="node ink" x="235" y="312">R</text>
+  <text class="label ink" x="62" y="355">P is over threshold.</text>
+  <text class="label muted" x="62" y="377">Q and R remain independent.</text>
+
+  <path class="connector" d="M295 247 L340 247"/>
+
+  <!-- Phase 2: policy-free group forest. -->
+  <rect class="analysis" x="342" y="100" width="350" height="295" rx="12"/>
+  <text class="heading ink" x="364" y="132">2 · Refinement groups</text>
+  <text class="small muted" x="364" y="154">breadth-first · readiness ignored</text>
+  <circle class="blue" cx="517" cy="196" r="30"/>
+  <text class="node ink" x="517" y="201">P</text>
+  <path class="tree-edge" d="M503 223 L456 271"/>
+  <path class="tree-edge" d="M531 223 L578 271"/>
+  <rect class="atomic" x="418" y="254" width="198" height="82" rx="10"/>
+  <text class="small ink" x="430" y="274">g0 · depth 1</text>
+  <circle class="green" cx="456" cy="300" r="25"/>
+  <text class="node ink" x="456" y="305">A</text>
+  <circle class="yellow" cx="578" cy="300" r="25"/>
+  <text class="node ink" x="578" y="305">B</text>
+  <text class="small muted" x="430" y="358">A ready · B unavailable · both returned</text>
+  <text class="small muted" x="430" y="378">A may parent a later group g1.</text>
+
+  <path class="connector" d="M692 247 L737 247"/>
+
+  <!-- Phase 3: application-side candidate propagation. -->
+  <rect class="panel" x="739" y="100" width="421" height="295" rx="12"/>
+  <text class="heading ink" x="761" y="132">3 · Candidate cut</text>
+  <text class="small muted" x="761" y="154">application policy · parent-before-child</text>
+
+  <text class="code muted" x="761" y="201">start</text>
+  <rect class="token" x="835" y="176" width="42" height="36" rx="6"/>
+  <text class="node ink" x="856" y="200">P</text>
+  <rect class="token" x="885" y="176" width="42" height="36" rx="6"/>
+  <text class="node ink" x="906" y="200">Q</text>
+  <rect class="token" x="935" y="176" width="42" height="36" rx="6"/>
+  <text class="node ink" x="956" y="200">R</text>
+
+  <path class="connector" d="M856 218 L856 249"/>
+  <text class="small muted" x="875" y="240">apply all of g0</text>
+
+  <text class="code muted" x="761" y="285">after g0</text>
+  <rect class="token-new" x="835" y="260" width="42" height="36" rx="6"/>
+  <text class="node ink" x="856" y="284">A</text>
+  <rect class="token-new" x="885" y="260" width="42" height="36" rx="6"/>
+  <text class="node ink" x="906" y="284">B</text>
+  <rect class="token" x="935" y="260" width="42" height="36" rx="6"/>
+  <text class="node ink" x="956" y="284">Q</text>
+  <rect class="token" x="985" y="260" width="42" height="36" rx="6"/>
+  <text class="node ink" x="1006" y="284">R</text>
+
+  <text class="label ink" x="761" y="339">Replace one present parent with every</text>
+  <text class="label ink" x="761" y="361">visible child in the selected group.</text>
+  <text class="small muted" x="761" y="381">A deeper group is legal only after A is present.</text>
+
+  <line class="rule" x1="40" y1="430" x2="1160" y2="430"/>
+  <text class="heading ink" x="40" y="466">Asynchronous render progression</text>
+  <text class="small muted" x="322" y="465">candidate planning and the current render cut are separate</text>
+
+  <!-- The actual frame loop. -->
+  <rect class="frame" x="40" y="492" width="238" height="142" rx="11"/>
+  <text class="small muted" x="58" y="517">frame N</text>
+  <text class="code ink" x="58" y="542">selectFrontier()</text>
+  <text class="label ink" x="58" y="570">current contains P</text>
+  <rect class="token" x="58" y="587" width="42" height="34" rx="6"/>
+  <text class="node ink" x="79" y="610">P</text>
+
+  <path class="connector" d="M278 562 L310 562"/>
+
+  <rect class="analysis" x="312" y="492" width="238" height="142" rx="11"/>
+  <text class="small muted" x="330" y="517">same read interval</text>
+  <text class="code ink" x="330" y="542">computeFrontierRefinement()</text>
+  <text class="label ink" x="330" y="570">returns g0 = P → {A, B}</text>
+  <text class="small muted" x="330" y="597">No readiness or cut mutation.</text>
+
+  <path class="connector" d="M550 562 L582 562"/>
+
+  <rect class="wait" x="584" y="492" width="252" height="142" rx="11"/>
+  <text class="small muted" x="602" y="517">application work</text>
+  <text class="label ink" x="602" y="543">Request A and B.</text>
+  <text class="label ink" x="602" y="569">While B is unavailable:</text>
+  <text class="heading ink" x="602" y="602">keep rendering P</text>
+  <text class="small muted" x="602" y="622">Never publish a partial sibling cover.</text>
+
+  <path class="connector" d="M836 562 L868 562"/>
+
+  <rect class="frame" x="870" y="492" width="290" height="142" rx="11"/>
+  <text class="small muted" x="888" y="517">frame N + k · A and B ready</text>
+  <text class="code ink" x="888" y="542">setDefinitionNodeReadiness()</text>
+  <text class="code ink" x="888" y="565">selectFrontier()</text>
+  <text class="label ink" x="888" y="598">P may be replaced by</text>
+  <rect class="token-new" x="1033" y="576" width="42" height="34" rx="6"/>
+  <text class="node ink" x="1054" y="599">A</text>
+  <rect class="token-new" x="1083" y="576" width="42" height="34" rx="6"/>
+  <text class="node ink" x="1104" y="599">B</text>
+  <text class="small muted" x="888" y="622">Q and R remain; then repeat from A.</text>
+
+  <rect class="panel" x="40" y="665" width="1120" height="62" rx="10"/>
+  <text class="label ink" x="60" y="692" font-weight="500">Invariant:</text>
+  <text class="label ink" x="128" y="692">
+    a current cut always covers the visible scene; refinement groups describe legal future replacements,
+  </text>
+  <text class="label ink" x="128" y="714">
+    while readiness and the next ordinary selection decide when rendering actually advances.
+  </text>
+</svg>
