@@ -264,3 +264,27 @@ the visualization in both BVH4 and BVH8 builds.
   is not an absolute overlap score. Rebuild acceptance is now gated by actual
   post-rebuild selective traversal rather than inferred from occupancy or
   growth alone.
+
+## API consolidation follow-up
+
+The two explicit public rebuild entry points were consolidated after the
+SpatialBins behavior was validated. `refreshTlas()` was removed and
+`optimize()` now requires an `OptimizationMode` argument:
+
+```cpp
+database.optimize(OptimizationMode::TopologyOnly);
+database.optimize(OptimizationMode::TopologyAndLayout);
+```
+
+`TopologyOnly` is the accepted SpatialBins rebuild that preserves dense slots,
+physical ordering, layout/mapping versions, and cached motion-group mappings.
+`TopologyAndLayout` is the configured-quality rebuild plus dead-slot
+compaction and traversal-order physical reordering. There is deliberately no
+default argument: each safe-point call must state the cost and invalidation
+scope it accepts. An enum is used instead of a boolean so call sites remain
+self-describing and additional scopes can be added without changing the
+meaning of `true` or `false`.
+
+This change only consolidates dispatch and public naming. The builders, data
+layouts, rebuild work, and post-rebuild query topology are unchanged, so the
+corrected performance measurements above remain the applicable numbers.

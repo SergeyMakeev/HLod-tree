@@ -37,7 +37,7 @@ TEST(Tlas, InstanceHandlesSurviveOptimize)
     }
     for (uint32_t i = 0; i < 64; i += 3)
         database.removeInstance(handles[i]);
-    database.optimize();
+    database.optimize(OptimizationMode::TopologyAndLayout);
 
     database.moveInstance(handles[1],
                           Transform{float4::point(500, 0, 0), 1.0f});
@@ -196,7 +196,7 @@ TEST(Tlas, TopologyDriftIsAdvisoryUntilARebuildIsExplicit)
     EXPECT_TRUE(before.topologyRebuildRecommended);
 #endif
 
-    database.optimize();
+    database.optimize(OptimizationMode::TopologyAndLayout);
 #ifdef FRONTIER_DEBUG_TOOLS
     const TlasDebugSummary after = database.debugTlasSummary();
     EXPECT_FALSE(after.buildRequired);
@@ -227,7 +227,7 @@ TEST(Tlas, FirstPopulationAfterAnEmptyPublicationBuildsAtConfiguredQuality)
 #endif
 }
 
-TEST(Tlas, RefreshRebuildsExactSpatialTopologyWithoutChangingDenseLayout)
+TEST(Tlas, TopologyOnlyOptimizationPreservesDenseLayout)
 {
     SpatialDatabaseConfig config;
     config.tlasQuality = TlasQuality::BinnedSAH;
@@ -258,7 +258,7 @@ TEST(Tlas, RefreshRebuildsExactSpatialTopologyWithoutChangingDenseLayout)
     const InstanceId denseBefore = TestAccess::denseInstanceId(database,
                                                                 handles[1]);
 
-    database.refreshTlas();
+    database.optimize(OptimizationMode::TopologyOnly);
 
     EXPECT_EQ(TestAccess::allocatedInstanceSlots(database), allocatedBefore);
     EXPECT_GT(allocatedBefore, TestAccess::liveInstanceSlots(database));
@@ -320,7 +320,7 @@ TEST(Tlas, EveryQualityTierReturnsTheSameVisibleSet)
 }
 
 #ifdef FRONTIER_DEBUG_TOOLS
-TEST(Tlas, SpatialRefreshDoesNotCreateCitySpanningNearLeafBounds)
+TEST(Tlas, TopologyOnlyOptimizationAvoidsCitySpanningNearLeafBounds)
 {
     constexpr uint32_t side = 100;
     constexpr uint32_t count = side * side;
@@ -334,7 +334,7 @@ TEST(Tlas, SpatialRefreshDoesNotCreateCitySpanningNearLeafBounds)
         database.instantiate(node(2000 + i, 0.0f, box(0.5f)), desc);
     }
     database.applyUpdates(0);
-    database.refreshTlas();
+    database.optimize(OptimizationMode::TopologyOnly);
 
     const TlasDebugSummary summary = database.debugTlasSummary();
     ASSERT_EQ(summary.activeQuality, TlasQuality::SpatialBins);

@@ -163,7 +163,7 @@ TEST(Torture, RandomizedTlasChurnMatchesTheLiveInstanceModel)
         }
         else
         {
-            database.optimize();
+            database.optimize(OptimizationMode::TopologyAndLayout);
         }
 
         if ((step % 13) == 0) verify(step);

@@ -1093,6 +1093,12 @@ enum class TlasQuality : uint8_t
     BinnedSAH,  // binned surface-area-heuristic split; best traversal cost
 };
 
+enum class OptimizationMode : uint8_t
+{
+    TopologyOnly,      // SpatialBins rebuild; preserve dense layout
+    TopologyAndLayout, // configured-quality rebuild, compact, and reorder
+};
+
 #ifdef FRONTIER_DEBUG_TOOLS
 enum class TlasDebugBoxKind : uint8_t
 {
@@ -1152,8 +1158,8 @@ struct SpatialDatabaseConfig
     // and anything referenced by `user` must remain valid for its lifetime.
     FrontierContext context{};
 
-    // Quality tier of the top-level BVH. Initial builds and explicit
-    // optimize() calls use this tier. refreshTlas() uses SpatialBins.
+    // Quality tier of the top-level BVH. Initial builds and
+    // optimize(TopologyAndLayout) calls use this tier.
     TlasQuality tlasQuality = TlasQuality::BinnedSAH;
 
     // SAH cost constants (BinnedSAH only): cost of visiting a node vs testing
@@ -1237,8 +1243,9 @@ public:
     // SpatialDatabase caches the corresponding physical instance order. This
     // is intended for groups that move together every frame: dense instance
     // writes become sequential and nearby TLAS paths retain cache locality.
-    // The one-time resolve/sort is amortized until optimize() or another
-    // physical layout change automatically invalidates the cache.
+    // The one-time resolve/sort is amortized until
+    // optimize(TopologyAndLayout) or another physical layout change
+    // automatically invalidates the cache.
     class MotionGroup
     {
     public:
@@ -1434,32 +1441,24 @@ public:
     // selection snapshot. A zero budget retains conservative grown bounds;
     // kUnlimitedTlasMaintenance drains the repair queue. Optional maintenance
     // never performs a topology rebuild: the returned report tells the caller
-    // when refreshTlas() or optimize() is recommended.
+    // when an explicit optimize(mode) call is recommended.
     // Call once before a group of selections, even when no database contents
     // changed; it also advances the epoch used by collection aging.
     // No SpatialDatabase mutation (including collect) may overlap or occur before every
     // SpatialQuery selection using this snapshot has completed.
     UpdateReport applyUpdates(uint32_t maintenanceNodeBudget);
 
-    // Rebuild the TLAS from exact current instance bounds with the linear-pass
-    // SpatialBins builder. Unlike optimize(), this does not compact dead dense
-    // slots or reorder instance and SpatialQuery-record storage, so cached
-    // MotionGroup physical mappings remain valid. It clears accumulated
-    // topology drift and incremental-maintenance state. This is still a full
-    // O(instance count) topology rebuild, intended as the lower-cost runtime
-    // alternative to optimize(). Pending bounds and motion edits are consumed;
-    // collection age is not advanced.
-    void refreshTlas();
-
-    // Force a full quality TLAS rebuild, compact dead dense slots, and restore
-    // physical instance/SpatialQuery-record order to TLAS traversal order. Public
-    // InstanceHandles and FrontierEntry::instance() ids remain stable. This is
-    // intentionally heavier than applyUpdates(budget): call it at an occasional
-    // synchronization point after disruptive database changes (level transition,
-    // teleport, loading screen), not as routine per-frame maintenance. It
-    // consumes pending bounds and instance-motion edits but does not advance
-    // collection age.
-    void optimize();
+    // Rebuild the TLAS from exact current instance bounds. TopologyOnly uses
+    // the linear-pass SpatialBins builder and preserves dense slots, physical
+    // instance/query-record order, layout versions, and cached MotionGroup
+    // mappings. TopologyAndLayout uses the configured quality tier, compacts
+    // dead dense slots, and restores physical order to TLAS traversal order.
+    // Both clear topology drift and incremental-maintenance state, consume
+    // pending bounds/motion edits, retain public handles, and do not advance
+    // collection age. TopologyAndLayout is intended for an occasional
+    // synchronization point after disruptive changes; TopologyOnly is the
+    // lower-cost runtime repair.
+    void optimize(OptimizationMode mode);
 
     // ---- garbage collection ----------------------------------------------------
     // Unmounts cold leaf placements from the LRU tail until the mounted count
@@ -2551,8 +2550,9 @@ private:
     uint32_t                frontierContentGeneration_ = 1;
     std::vector<InstanceId> liveInstances_;
     std::vector<uint32_t> freeInstances_;
-    // Public InstanceHandle/FrontierEntry ids remain stable while optimize() or the
-    // first non-empty build permutes dense storage into TLAS traversal order.
+    // Public InstanceHandle/FrontierEntry ids remain stable while
+    // optimize(TopologyAndLayout) or the first non-empty build permutes dense
+    // storage into TLAS traversal order.
     std::vector<InstanceId> instanceHandleToDense_;
     std::vector<InstanceId> instanceDenseToHandle_;
     std::vector<InstanceId> freeInstanceHandles_;

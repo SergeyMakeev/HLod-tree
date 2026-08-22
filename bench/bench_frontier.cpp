@@ -541,7 +541,7 @@ std::unique_ptr<LiveCityScene> buildLiveCityScene(
     }
 
     TestAccess::markAllNodesReady(scene->world);
-    scene->world.optimize();
+    scene->world.optimize(OptimizationMode::TopologyAndLayout);
     if (!terminalBatches)
     {
         scene->carMotion.reset(carHandles);
@@ -888,7 +888,7 @@ static void BM_TlasIncrementalMaintenance(benchmark::State& state)
             movers.push_back(handle);
     }
     world.applyUpdates(0);
-    world.optimize();
+    world.optimize(OptimizationMode::TopologyAndLayout);
     SpatialDatabase::MotionGroup motion(movers);
 
     bool raised = false;
@@ -924,13 +924,13 @@ BENCHMARK(BM_TlasIncrementalMaintenance)
 
 // Isolate the two explicit full-topology choices after a distributed motion
 // batch. Motion is staged once before measurement so this reports the rebuild:
-// method 0 is the linear spatial-bin refresh that preserves dense layout;
-// method 1 is the configured binned-SAH rebuild plus compaction and
-// traversal-order rewrite.
+// mode 0 is TopologyOnly: a linear spatial-bin rebuild that preserves dense
+// layout. Mode 1 is TopologyAndLayout: the configured binned-SAH rebuild plus
+// compaction and traversal-order rewrite.
 static void BM_TlasTopologyRebuild(benchmark::State& state)
 {
     const uint32_t count = uint32_t(state.range(0));
-    const bool optimize = state.range(1) != 0;
+    const bool includeLayout = state.range(1) != 0;
     SpatialDatabaseConfig config;
     config.tlasQuality = TlasQuality::BinnedSAH;
     SpatialDatabase world(config);
@@ -951,16 +951,16 @@ static void BM_TlasTopologyRebuild(benchmark::State& state)
             movers.push_back(handle);
     }
     world.applyUpdates(0);
-    world.optimize();
+    world.optimize(OptimizationMode::TopologyAndLayout);
     SpatialDatabase::MotionGroup motion(movers);
     world.translateInstances(motion, float4::vec(0.0f, 0.25f, 0.0f));
 
     for (auto _ : state)
     {
-        if (optimize)
-            world.optimize();
+        if (includeLayout)
+            world.optimize(OptimizationMode::TopologyAndLayout);
         else
-            world.refreshTlas();
+            world.optimize(OptimizationMode::TopologyOnly);
         benchmark::ClobberMemory();
     }
     state.counters["moving"] = double(movers.size());
@@ -971,7 +971,7 @@ static void BM_TlasTopologyRebuild(benchmark::State& state)
 BENCHMARK(BM_TlasTopologyRebuild)
     ->Args({1191, 0})->Args({1191, 1})
     ->Args({10000, 0})->Args({10000, 1})
-    ->ArgNames({"instances", "optimize"})
+    ->ArgNames({"instances", "topology_and_layout"})
     ->UseRealTime()
     ->Unit(benchmark::kMicrosecond);
 
@@ -983,7 +983,7 @@ static void BM_TlasPostRebuildSelection(benchmark::State& state)
 {
     constexpr uint32_t count = 10000;
     constexpr uint32_t side = 100;
-    const bool optimize = state.range(0) != 0;
+    const bool includeLayout = state.range(0) != 0;
     SpatialDatabaseConfig config;
     config.tlasQuality = TlasQuality::BinnedSAH;
     SpatialDatabase world(config);
@@ -1000,13 +1000,13 @@ static void BM_TlasPostRebuildSelection(benchmark::State& state)
         if (i % 10 == 0) movers.push_back(handle);
     }
     world.applyUpdates(0);
-    world.optimize();
+    world.optimize(OptimizationMode::TopologyAndLayout);
     SpatialDatabase::MotionGroup motion(movers);
     world.translateInstances(motion, float4::vec(0.75f, 0.25f, 0.0f));
-    if (optimize)
-        world.optimize();
+    if (includeLayout)
+        world.optimize(OptimizationMode::TopologyAndLayout);
     else
-        world.refreshTlas();
+        world.optimize(OptimizationMode::TopologyOnly);
 
     const Camera camera = cameraAt(-50.0f);
     SpatialQuery query;
@@ -1024,7 +1024,7 @@ static void BM_TlasPostRebuildSelection(benchmark::State& state)
 
 BENCHMARK(BM_TlasPostRebuildSelection)
     ->Args({0})->Args({1})
-    ->ArgNames({"optimize"})
+    ->ArgNames({"topology_and_layout"})
     ->Unit(benchmark::kMicrosecond);
 
 // End-to-end dynamic-frame cost: move a distributed subset of TLAS roots,

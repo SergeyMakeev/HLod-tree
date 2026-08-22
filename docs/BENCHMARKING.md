@@ -51,15 +51,15 @@ library's macro-based public payload customization.
   and 256 nodes. Counters report nodes processed and pending per call plus the
   average TLAS area-growth ratio, exposing both the steady per-frame charge and
   repair throughput.
-- `BM_TlasTopologyRebuild` compares `refreshTlas()` with `optimize()` after a
-  distributed 10% motion batch at 1,191 roots (the live-city population) and
-  10,000 roots. Motion submission is outside the timed interval. Method zero is
-  the exact linear-pass SpatialBins rebuild that preserves dense layout; method
-  one is the configured Binned-SAH rebuild plus compaction and physical
-  reordering.
+- `BM_TlasTopologyRebuild` compares `TopologyOnly` and `TopologyAndLayout`
+  optimization after a distributed 10% motion batch at 1,191 roots (the
+  live-city population) and 10,000 roots. Motion submission is outside the
+  timed interval. Mode zero is the exact linear-pass SpatialBins rebuild that
+  preserves dense layout; mode one is the configured Binned-SAH rebuild plus
+  compaction and physical reordering.
 - `BM_TlasPostRebuildSelection` starts from the same Binned-SAH scene and
-  distributed motion, performs either `refreshTlas()` or `optimize()`, then
-  times a selective close-camera query. This prevents a cheap builder from
+  distributed motion, performs either optimization mode, then times a
+  selective close-camera query. This prevents a cheap builder from
   hiding rebuild work by producing overlapping bounds that every later query
   must traverse.
 - `BM_MovingObjectsSelectionScale` moves a distributed 10% or 100% of a

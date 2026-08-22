@@ -765,7 +765,7 @@ TEST(Frontier, TerminalActorBatchMatchesMountedYawedInstance)
     mountedDatabase.mountSubtree(instance.rootNode(), mountedDefinition);
     TestAccess::markAllNodesReady(mountedDatabase);
     TestAccess::markAllNodesReady(batchDatabase);
-    mountedDatabase.optimize();
+    mountedDatabase.optimize(OptimizationMode::TopologyAndLayout);
     batchDatabase.applyUpdates(0);
 
     std::array<float4, 1> positions{desc.pos};

@@ -246,12 +246,6 @@ enum class RebuildStrategy : uint8_t
     WhenRecommended,
 };
 
-enum class RebuildMethod : uint8_t
-{
-    RefreshTlas,
-    Optimize,
-};
-
 enum class StreamingCutStrategy : uint8_t
 {
     QualityPerByte,
@@ -796,37 +790,34 @@ public:
             }
         }
 
-        const bool manualOptimize = optimizeRequested_;
-        const bool manualRefresh = refreshTlasRequested_;
-        if (manualOptimize || manualRefresh || scheduledRebuild)
+        const bool manualFull = fullOptimizationRequested_;
+        const bool manualTopology = topologyOptimizationRequested_;
+        if (manualFull || manualTopology || scheduledRebuild)
         {
-            const RebuildMethod method = manualOptimize
-                                             ? RebuildMethod::Optimize
-                                         : manualRefresh
-                                             ? RebuildMethod::RefreshTlas
-                                             : scheduledRebuildMethod_;
+            const OptimizationMode mode = manualFull
+                ? OptimizationMode::TopologyAndLayout
+                : manualTopology
+                    ? OptimizationMode::TopologyOnly
+                    : scheduledOptimizationMode_;
             stageStart = stageEnd;
-            if (method == RebuildMethod::Optimize)
-                database_.optimize();
-            else
-                database_.refreshTlas();
+            database_.optimize(mode);
             stageEnd = bx::getHPCounter();
             performance.tlasRebuildMs = milliseconds(stageStart, stageEnd);
             lastRebuildMs_ = performance.tlasRebuildMs;
-            lastRebuildMethod_ = method;
+            lastOptimizationMode_ = mode;
             ++rebuildCount_;
-            if (method == RebuildMethod::Optimize)
-                ++optimizeCount_;
+            if (mode == OptimizationMode::TopologyAndLayout)
+                ++fullOptimizationCount_;
             else
-                ++refreshTlasCount_;
+                ++topologyOptimizationCount_;
             lastUpdateReport_.maintenanceNodesPending = 0;
             lastUpdateReport_.areaGrowthRatio = 0.0f;
             lastUpdateReport_.topologyRebuildRecommended = false;
-            lastRebuildTrigger_ = manualOptimize || manualRefresh
+            lastRebuildTrigger_ = manualFull || manualTopology
                                       ? RebuildStrategy::Manual
                                       : rebuildStrategy_;
-            optimizeRequested_ = false;
-            refreshTlasRequested_ = false;
+            fullOptimizationRequested_ = false;
+            topologyOptimizationRequested_ = false;
             timeSinceRebuild_ = 0.0f;
 #ifdef FRONTIER_DEBUG_TOOLS
             tlasHealthValid_ = false;
@@ -1033,10 +1024,11 @@ private:
         return "unknown";
     }
 
-    static const char* rebuildMethodName(RebuildMethod method)
+    static const char* optimizationModeName(OptimizationMode mode)
     {
-        return method == RebuildMethod::RefreshTlas ? "refreshTlas"
-                                                    : "optimize";
+        return mode == OptimizationMode::TopologyOnly
+                   ? "topology only"
+                   : "topology + layout";
     }
 
     void drawDebugUi()
@@ -1243,21 +1235,24 @@ private:
                     "only when recommended");
                 ImGui::Text("Next recommendation check in %.2f s", remaining);
             }
-            ImGui::Text("Scheduled method");
+            ImGui::Text("Scheduled mode");
             if (ImGui::RadioButton(
-                    "refreshTlas (spatial bins, preserves layout)",
-                    scheduledRebuildMethod_ == RebuildMethod::RefreshTlas))
-                scheduledRebuildMethod_ = RebuildMethod::RefreshTlas;
+                    "Topology only (spatial bins, preserves layout)",
+                    scheduledOptimizationMode_ ==
+                        OptimizationMode::TopologyOnly))
+                scheduledOptimizationMode_ = OptimizationMode::TopologyOnly;
             if (ImGui::RadioButton(
-                    "optimize (configured quality + compaction)",
-                    scheduledRebuildMethod_ == RebuildMethod::Optimize))
-                scheduledRebuildMethod_ = RebuildMethod::Optimize;
+                    "Topology + layout (configured quality + compaction)",
+                    scheduledOptimizationMode_ ==
+                        OptimizationMode::TopologyAndLayout))
+                scheduledOptimizationMode_ =
+                    OptimizationMode::TopologyAndLayout;
         }
-        if (ImGui::Button("Refresh TLAS now"))
-            refreshTlasRequested_ = true;
+        if (ImGui::Button("Optimize topology now"))
+            topologyOptimizationRequested_ = true;
         ImGui::SameLine();
-        if (ImGui::Button("Optimize now"))
-            optimizeRequested_ = true;
+        if (ImGui::Button("Optimize topology + layout now"))
+            fullOptimizationRequested_ = true;
         if (rebuildCount_ == 0)
         {
             ImGui::Text("No runtime topology rebuilds");
@@ -1267,11 +1262,12 @@ private:
             ImGui::Text("%llu rebuilds | last %.1f us (%s, %s)",
                         static_cast<unsigned long long>(rebuildCount_),
                         lastRebuildMs_ * 1000.0f,
-                        rebuildMethodName(lastRebuildMethod_),
+                        optimizationModeName(lastOptimizationMode_),
                         rebuildStrategyName(lastRebuildTrigger_));
-            ImGui::Text("refreshTlas %llu | optimize %llu",
-                        static_cast<unsigned long long>(refreshTlasCount_),
-                        static_cast<unsigned long long>(optimizeCount_));
+            ImGui::Text(
+                "topology only %llu | topology + layout %llu",
+                static_cast<unsigned long long>(topologyOptimizationCount_),
+                static_cast<unsigned long long>(fullOptimizationCount_));
         }
         if (rebuildStrategy_ == RebuildStrategy::WhenRecommended ||
             rebuildRecommendationChecks_ != 0)
@@ -1830,12 +1826,12 @@ private:
                         static_cast<unsigned long long>(rebuildCount_));
         else if (rebuildStrategy_ == RebuildStrategy::Periodic)
             ImGui::Text("TLAS %s periodic %.1f s | %llu calls",
-                        rebuildMethodName(scheduledRebuildMethod_),
+                        optimizationModeName(scheduledOptimizationMode_),
                         rebuildIntervalSeconds_,
                         static_cast<unsigned long long>(rebuildCount_));
         else
             ImGui::Text("TLAS %s advised %.1f s | %llu calls",
-                        rebuildMethodName(scheduledRebuildMethod_),
+                        optimizationModeName(scheduledOptimizationMode_),
                         rebuildIntervalSeconds_,
                         static_cast<unsigned long long>(rebuildCount_));
         ImGui::TextColored(
@@ -2015,7 +2011,7 @@ private:
     }
 
 #ifdef FRONTIER_DEBUG_TOOLS
-    void refreshTlasHealth()
+    void sampleTlasHealth()
     {
         if (tlasHealthValid_ && cameraTime_ < nextTlasHealthSampleTime_)
             return;
@@ -2030,7 +2026,7 @@ private:
 
     void drawTlasHealthUi()
     {
-        refreshTlasHealth();
+        sampleTlasHealth();
         ImGui::SetNextWindowPos(ImVec2(12.0f, 478.0f),
                                 ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(ImVec2(390.0f, 410.0f),
@@ -2083,9 +2079,9 @@ private:
         else
             ImGui::Text("applyUpdates budget: %d nodes",
                         tlasMaintenanceBudget_);
-        ImGui::Text("Rebuild strategy: %s | method: %s",
+        ImGui::Text("Rebuild strategy: %s | mode: %s",
                     rebuildStrategyName(rebuildStrategy_),
-                    rebuildMethodName(scheduledRebuildMethod_));
+                    optimizationModeName(scheduledOptimizationMode_));
         if (tlasHealth_.buildRequired)
             ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.20f, 1.0f),
                                "TLAS health: correctness build required");
@@ -3176,7 +3172,7 @@ private:
         resetWholeSceneMotionGroup();
 
         database_.applyUpdates(0);
-        database_.optimize();
+        database_.optimize(OptimizationMode::TopologyAndLayout);
     }
 
     void updateMovingActorSources(float time)
@@ -5659,21 +5655,23 @@ private:
     bool showPerformance_ = false;
     bool showSceneHierarchy_ = false;
     bool unlimitedTlasMaintenance_ = false;
-    bool optimizeRequested_ = false;
-    bool refreshTlasRequested_ = false;
+    bool fullOptimizationRequested_ = false;
+    bool topologyOptimizationRequested_ = false;
     int tlasMaintenanceBudget_ = 256;
     RebuildStrategy rebuildStrategy_ = RebuildStrategy::WhenRecommended;
     RebuildStrategy lastRebuildTrigger_ = RebuildStrategy::Manual;
-    RebuildMethod scheduledRebuildMethod_ = RebuildMethod::RefreshTlas;
-    RebuildMethod lastRebuildMethod_ = RebuildMethod::RefreshTlas;
+    OptimizationMode scheduledOptimizationMode_ =
+        OptimizationMode::TopologyOnly;
+    OptimizationMode lastOptimizationMode_ =
+        OptimizationMode::TopologyOnly;
     StreamingCutStrategy streamingCutStrategy_ =
         StreamingCutStrategy::QualityPerByte;
     float rebuildIntervalSeconds_ = 2.0f;
     float timeSinceRebuild_ = 0.0f;
     float lastRebuildMs_ = 0.0f;
     uint64_t rebuildCount_ = 0;
-    uint64_t refreshTlasCount_ = 0;
-    uint64_t optimizeCount_ = 0;
+    uint64_t topologyOptimizationCount_ = 0;
+    uint64_t fullOptimizationCount_ = 0;
     uint64_t rebuildRecommendationChecks_ = 0;
     uint64_t rebuildRecommendationSkips_ = 0;
     UpdateReport lastUpdateReport_{};

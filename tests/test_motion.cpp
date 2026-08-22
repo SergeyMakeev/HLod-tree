@@ -112,7 +112,7 @@ TEST(Motion, LargeMotionBatchPublishesOneExactTlasRefit)
             -100.0f + float(i / 8) * 6.0f);
     }
     database.applyUpdates(0);
-    database.optimize();
+    database.optimize(OptimizationMode::TopologyAndLayout);
 
     SpatialDatabase::MotionGroup group(handles);
     database.moveInstances(group, transforms);

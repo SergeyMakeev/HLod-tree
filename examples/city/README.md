@@ -52,13 +52,14 @@ also pauses this stress animation. The separate **TLAS maintenance** window
 configures a finite or unlimited node-repair budget for each `applyUpdates`
 call and three explicit topology-rebuild strategies: **Manual only**,
 unconditional **Periodic**, and **When recommended**. The two scheduled
-strategies use a configurable 0.25-to-60-second interval and can call either
-`refreshTlas()` (SpatialBins topology, dense layout preserved) or `optimize()`
-(configured quality, compaction, and spatial reordering). Recommendation-gated
-mode checks the latest `UpdateReport` at that cadence. **Refresh TLAS now** and
-**Optimize now** remain available under every strategy. The UI tracks timing
-and call counts for both methods so they can be compared. The sample defaults
-to **When recommended**, `refreshTlas()`, and a two-second check interval.
+strategies use a configurable 0.25-to-60-second interval and can call
+`optimize(mode)` in either **Topology only** mode (SpatialBins topology, dense
+layout preserved) or **Topology + layout** mode (configured quality,
+compaction, and spatial reordering). Recommendation-gated mode checks the
+latest `UpdateReport` at that cadence. Both modes remain manually available
+under every strategy, and the UI tracks their timing and call counts. The
+sample defaults to **When recommended**, **Topology only**, and a two-second
+check interval.
 The separate **Virtual streaming** window controls the virtual memory budget,
 load latency, unload delay, maximum concurrent group loads, and the residency
 cut strategy. **Turn off virtual streaming** cancels simulated I/O and makes

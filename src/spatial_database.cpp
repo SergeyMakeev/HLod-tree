@@ -1658,8 +1658,8 @@ void SpatialDatabase::MotionGroup::reset(
 }
 
 // Current topology drift is advisory. Population, edit, and stored-area drift
-// remain queryable after every publication; only an explicit refreshTlas() or
-// optimize() acts on the recommendation.
+// remain queryable after every publication; only an explicit optimize(mode)
+// call acts on the recommendation.
 float SpatialDatabase::tlasAreaGrowthRatio() const
 {
     if (!(tlasBaseArea_ > 0.0)) return 0.0f;
@@ -2488,25 +2488,22 @@ UpdateReport SpatialDatabase::applyUpdates(uint32_t maintenanceNodeBudget)
     return report;
 }
 
-void SpatialDatabase::refreshTlas()
+void SpatialDatabase::optimize(OptimizationMode mode)
 {
+    FRONTIER_CHECK(mode == OptimizationMode::TopologyOnly ||
+                       mode == OptimizationMode::TopologyAndLayout,
+                   "SpatialDatabase: invalid optimization mode");
     // The rebuild consumes exact Instance records directly. Discarding the
     // pending old-topology lane list avoids paying for a refit that will be
     // thrown away immediately.
     tlasItemsTmp_.clear();
     tlasBuildRequired_ = true;
     flushBounds();
-    tlasRebuild(false, TlasQuality::SpatialBins);
-}
-
-void SpatialDatabase::optimize()
-{
-    // The rebuild below consumes the exact Instance records directly, so no
-    // intermediate refit of the old topology is necessary.
-    tlasItemsTmp_.clear();
-    tlasBuildRequired_ = true;
-    flushBounds();
-    tlasRebuild(true, config_.tlasQuality);
+    const bool includeLayout =
+        mode == OptimizationMode::TopologyAndLayout;
+    tlasRebuild(includeLayout,
+                includeLayout ? config_.tlasQuality
+                              : TlasQuality::SpatialBins);
 }
 
 void SpatialDatabase::flushBounds()
@@ -3177,9 +3174,10 @@ void SpatialDatabase::tlasRefitAllExact()
     std::fill(tlasRepairQueued_.begin(), tlasRepairQueued_.end(), uint8_t(0));
 }
 
-// Linear-pass spatial build used by refreshTlas(). Each large range is split
-// into kWide equal-width bins on its longest centroid axis. This preserves
-// geometric locality directly without flattening it into one global order.
+// Linear-pass spatial build used by TopologyOnly optimization. Each large
+// range is split into kWide equal-width bins on its longest centroid axis.
+// This preserves geometric locality directly without flattening it into one
+// global order.
 // Each level counts and scatters, then swaps source/destination roles for its
 // children instead of copying the partition back. Small or severely skewed
 // ranges use the exact Median builder as a bounded fallback.
@@ -3601,8 +3599,8 @@ void SpatialDatabase::reorderInstancesByTlas()
 }
 
 // Build the required initial/recovery topology or a topology explicitly
-// requested by refreshTlas()/optimize(). Routine motion and topology drift
-// never reach this path implicitly.
+// requested by optimize(mode). Routine motion and topology drift never reach
+// this path implicitly.
 void SpatialDatabase::tlasRebuild(bool reorderInstances,
                                   TlasQuality quality)
 {

@@ -1397,6 +1397,22 @@ enum class TlasQuality : uint8_t {
 - `BinnedSAH` uses a binned surface-area heuristic and normally gives the best
   traversal quality.
 
+### `OptimizationMode`
+
+```cpp
+enum class OptimizationMode : uint8_t {
+    TopologyOnly,
+    TopologyAndLayout,
+};
+```
+
+- `TopologyOnly` rebuilds exact TLAS topology with `SpatialBins` while
+  preserving dense slots, physical order, layout/mapping versions, and cached
+  `MotionGroup` mappings.
+- `TopologyAndLayout` rebuilds with `SpatialDatabaseConfig::tlasQuality`,
+  compacts dead dense slots, and restores physical storage to TLAS traversal
+  order.
+
 ### `SpatialDatabaseConfig`
 
 ```cpp
@@ -1413,8 +1429,9 @@ struct SpatialDatabaseConfig {
 ```
 
 - `context` supplies callbacks and is copied into the database.
-- `tlasQuality` selects initial-build and explicit-`optimize()` quality;
-  `refreshTlas()` builds SpatialBins topology.
+- `tlasQuality` selects initial-build and
+  `optimize(OptimizationMode::TopologyAndLayout)` quality. `TopologyOnly`
+  always builds SpatialBins topology.
 - `tlasTraversalCost` and `tlasIntersectCost` are the Binned-SAH cost terms;
   increasing intersection cost favors deeper, tighter trees.
 - `tlasCountDrift` is the population-change fraction at which
@@ -1436,7 +1453,7 @@ serial and parallel cuts are identical.
 
 The three drift thresholds are advisory. They never cause an implicit topology
 rebuild during publication; only the application decides when to call
-`refreshTlas()` or `optimize()`.
+`optimize(mode)`.
 
 ## 10. `SpatialDatabase`
 
@@ -1570,7 +1587,8 @@ public:
 A motion group owns a copy of a stable caller-order instance cohort and caches
 the corresponding physical database order. A database mapping epoch validates
 the cohort once per call; the cache refreshes automatically after instance
-addition, removal, slot reuse, `optimize()`, or another layout change.
+addition, removal, slot reuse,
+`optimize(OptimizationMode::TopologyAndLayout)`, or another layout change.
 
 The cached order is intended for cohorts updated repeatedly. It keeps dense
 instance and motion-odometer writes sequential and improves reuse of nearby TLAS paths,
@@ -1871,18 +1889,18 @@ edits, if collection age should advance. No mutation or collection may overlap
 selections using the published snapshot.
 
 ```cpp
-void refreshTlas();
-void optimize();
+void optimize(OptimizationMode mode);
 ```
 
-Both methods consume pending bounds and instance motion and establish a fresh
-population/area drift baseline without advancing `frame()` or collection age.
-`refreshTlas()` uses the SpatialBins builder, clears incremental maintenance,
-and preserves dense slots, physical instance order, layout version, and
-mapping version. `optimize()` uses `SpatialDatabaseConfig::tlasQuality`,
-compacts dead dense slots, and restores physical query-record order to TLAS
-traversal order. Public `InstanceHandle` values, root `NodeHandle` values, and
-`FrontierEntry::instance()` ids remain stable in either case.
+Both modes consume pending bounds and instance motion, clear incremental
+maintenance, and establish a fresh population/area drift baseline without
+advancing `frame()` or collection age. `TopologyOnly` uses the SpatialBins
+builder and preserves dense slots, physical instance order, layout version,
+and mapping version. `TopologyAndLayout` uses
+`SpatialDatabaseConfig::tlasQuality`, compacts dead dense slots, and restores
+physical query-record order to TLAS traversal order. Public `InstanceHandle`
+values, root `NodeHandle` values, and `FrontierEntry::instance()` ids remain
+stable in either mode. Unknown enum values are contract errors.
 
 ### Mounted-placement collection
 

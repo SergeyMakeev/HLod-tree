@@ -255,6 +255,10 @@ TEST(Contracts, InvalidConfigurationAndSelectionInputsAreRejected)
     database.applyUpdates(0);
     SpatialQuery query;
 
+    EXPECT_THROW(
+        database.optimize(static_cast<OptimizationMode>(255)),
+        std::logic_error);
+
     SelectionParams params;
     params.threshold = 0.0f;
     EXPECT_THROW(query.selectFrontier(database, cameraAt(), params),

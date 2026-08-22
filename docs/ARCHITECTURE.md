@@ -176,12 +176,12 @@ exhaustive threshold-directed closure.
 
 ## TLAS maintenance
 
-Initial builds and explicit `optimize()` calls use the configured `BinnedSAH`,
-`Median`, or `SpatialBins` tier. `refreshTlas()` uses the SpatialBins builder
-and does not change dense instance layout. Incremental insertion descends by
-least bound growth and splits a full leaf. Removal invalidates a lane. Instance
-motion updates exact dense instance state immediately but defers TLAS writes
-to `applyUpdates(maintenanceNodeBudget)`.
+Initial builds and `optimize(TopologyAndLayout)` use the configured
+`BinnedSAH`, `Median`, or `SpatialBins` tier. `optimize(TopologyOnly)` uses the
+SpatialBins builder and does not change dense instance layout. Incremental
+insertion descends by least bound growth and splits a full leaf. Removal
+invalidates a lane. Instance motion updates exact dense instance state
+immediately but defers TLAS writes to `applyUpdates(maintenanceNodeBudget)`.
 
 A cohort smaller than one quarter of the TLAS population uses conservative
 grow-only leaf and ancestor propagation. Each changed leaf is queued once for
@@ -201,9 +201,10 @@ queue.
 
 Population drift, edit fraction, and current lane-area growth set
 `UpdateReport::topologyRebuildRecommended`; they never schedule an implicit
-topology rebuild. The application chooses `refreshTlas()` for an exact
-linear-pass spatial-bin refresh that preserves dense layout, or `optimize()`
-for configured-quality rebuild plus compaction and spatial reordering.
+topology rebuild. The application calls `optimize(TopologyOnly)` for an exact
+linear-pass spatial-bin rebuild that preserves dense layout, or
+`optimize(TopologyAndLayout)` for configured-quality rebuild plus compaction
+and spatial reordering.
 
 The large-batch path reuses mutually exclusive build scratch: one 32-bit array
 holds pending dense instance ids and the temporary DFS stack, while another is
@@ -216,8 +217,8 @@ actor-motion publication pass.
 An 80-byte `Instance` keeps transform, exact world bound, maximum root error,
 mask, mounted-root slot, generation, overlay-list index, TLAS back-pointer, and
 dense-list index together. Public ids map through stable handle-to-dense tables.
-`optimize()` compacts dead dense slots and rewrites physical back-pointers while
-preserving those ids.
+`optimize(TopologyAndLayout)` compacts dead dense slots and rewrites physical
+back-pointers while preserving those ids.
 
 Rigid actor animation has a separate archive-level publication module.
 `RigidMotionGroup` caches the same caller-to-dense mapping plus a proof that all

@@ -211,8 +211,9 @@ constraints.
 | Shared TLAS level scratch | 4 B/live root | Spatial-bin scatter during rebuild; retained exact-refit postorder between rebuilds. |
 
 Top-level public instance ids are stable. The database separately maps stable
-handle ids to dense physical ids, so `optimize()` can reorder and compact all
-parallel instance streams without invalidating application handles.
+handle ids to dense physical ids, so `optimize(TopologyAndLayout)` can reorder
+and compact all parallel instance streams without invalidating application
+handles.
 
 ### 4.3 Hot/cold and sparse allocation rules
 
@@ -648,9 +649,9 @@ definitions, and readiness bits survive the removal of placements.
 ### 9.1 Build tiers
 
 The configured quality tier is `SpatialBins`, `Median`, or 16-bin `BinnedSAH`.
-Initial builds and explicit `optimize()` calls use the configured tier.
-`refreshTlas()` uses the SpatialBins builder and preserves the current
-dense instance layout.
+Initial builds and `optimize(TopologyAndLayout)` use the configured tier.
+`optimize(TopologyOnly)` uses the SpatialBins builder and preserves the
+current dense instance layout.
 
 The quality builder recursively produces a `kWide`-way tree using
 `log2(kWide)` binary splits per node. SAH scans 16 bins on all three axes; a
@@ -680,7 +681,7 @@ Removal clears the instance lane and unlinks newly empty nodes. It deliberately
 leaves ancestor boxes loose and queues their repair. `tlasEditFraction` and
 `tlasCountDrift` decide when publication recommends a topology rebuild; steady
 spawn/despawn churn remains incremental until the application accepts that
-recommendation with `refreshTlas()` or `optimize()`.
+recommendation with `optimize(mode)`.
 
 ### 9.3 Motion publication
 
@@ -729,31 +730,33 @@ camera by the offset. A later differential edit materializes it in one pass.
 
 ### 9.4 Explicit topology rebuilds
 
-`refreshTlas()` consumes exact current instance bounds, rebuilds all TLAS nodes
-with linear-pass spatial bins, clears loose flags and the incremental repair queue, and
-establishes fresh population and area baselines. It does not compact dead dense
-slots, permute any per-instance stream, or increment the instance layout and
-mapping epochs. Existing `MotionGroup` and `RigidMotionGroup` dense mappings
-therefore remain valid.
+`optimize(TopologyOnly)` consumes exact current instance bounds, rebuilds all
+TLAS nodes with linear-pass spatial bins, clears loose flags and the incremental
+repair queue, and establishes fresh population and area baselines. It does not
+compact dead dense slots, permute any per-instance stream, or increment the
+instance layout and mapping epochs. Existing `MotionGroup` and
+`RigidMotionGroup` dense mappings therefore remain valid.
 
-`optimize()` performs the configured-quality rebuild and then compacts and
-spatially reorders dense storage. It is the appropriate choice when dead-slot
-reclamation or a configured Median/BinnedSAH topology justifies the
-additional safe-point cost.
+`optimize(TopologyAndLayout)` performs the configured-quality rebuild and then
+compacts and spatially reorders dense storage. It is the appropriate choice
+when dead-slot reclamation or a configured Median/BinnedSAH topology justifies
+the additional safe-point cost. The mode argument is required so call sites
+state which invalidation and cost profile they accept.
 
 ### 9.5 Physical reordering
 
-The first spatial build and explicit `optimize()` reorder dense database
-instance streams into TLAS traversal order. A query detects the layout-version
-change, clears old records, and subsequently indexes new cache records in that
-same dense order. Visible ids then tend to be a monotonic spatial subsequence,
-improving locality in `Instance`, cache record, motion, and parallel arrays.
-Stable public handle maps and TLAS leaf ids are rewritten around the
-permutation. Dead dense slots are compacted at the same time.
+The first spatial build and explicit `optimize(TopologyAndLayout)` calls
+reorder dense database instance streams into TLAS traversal order. A query
+detects the layout-version change, clears old records, and subsequently indexes
+new cache records in that same dense order. Visible ids then tend to be a
+monotonic spatial subsequence, improving locality in `Instance`, cache record,
+motion, and parallel arrays. Stable public handle maps and TLAS leaf ids are
+rewritten around the permutation. Dead dense slots are compacted at the same
+time.
 
 Any new per-instance parallel stream must be handled in allocation, removal,
 reordering, and compaction code. Missing one of those sites usually creates a
-correctness bug that appears only after `optimize()`.
+correctness bug that appears only after `optimize(TopologyAndLayout)`.
 
 ## 10. Copy-on-write deformed bounds
 

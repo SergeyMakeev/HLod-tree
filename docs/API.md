@@ -910,8 +910,9 @@ is cheaper than many scattered grow paths; it is not an optional topology
 rebuild and does not consume the maintenance budget.
 
 Here **dense order** means Frontier's compact internal instance-slot order. It
-may change during `optimize()`. Public `InstanceHandle` identity remains stable,
-and `MotionGroup` retains caller order.
+may change during `optimize(OptimizationMode::TopologyAndLayout)`. Public
+`InstanceHandle` identity remains stable, and `MotionGroup` retains caller
+order.
 
 This is the recommended path when the same collection moves repeatedly, such
 as traffic, particles, units, or a streamed terrain patch set. The application
@@ -945,8 +946,9 @@ record array. Scale, deformation, topology, readiness, mapping changes, and a
 failed TLAS-root visibility proof reject this shortcut conservatively.
 
 The first update after construction or `reset()` resolves and sorts the cohort.
-The database automatically rebuilds that cache after `optimize()` or another
-physical layout change; ordinary frames only perform the ordered O(n) update.
+The database automatically rebuilds that cache after
+`optimize(OptimizationMode::TopologyAndLayout)` or another physical layout
+change; ordinary frames only perform the ordered O(n) update.
 Keep a `MotionGroup` alive across frames to amortize the sort—recreating it each
 frame throws away the benefit. Use individual `moveInstance()` calls for
 occasional movement or changing cohorts. Use `translateInstances()` whenever a
@@ -1086,18 +1088,23 @@ correctness-required build occurred.
 
 `applyUpdates(maintenanceNodeBudget)` never performs an optional topology
 rebuild. Population drift, incremental edit count, and stored-area growth only set
-`topologyRebuildRecommended`. The application can answer that advice with one
-of two explicit safe-point operations:
+`topologyRebuildRecommended`. The application answers that advice with one
+explicit safe-point operation and an explicit scope:
 
-- `refreshTlas()` flushes pending state and rebuilds exact TLAS topology with
+```cpp
+database.optimize(OptimizationMode::TopologyOnly);
+database.optimize(OptimizationMode::TopologyAndLayout);
+```
+
+- `TopologyOnly` flushes pending state and rebuilds exact TLAS topology with
   the linear-pass `SpatialBins` builder. It leaves dead dense slots and
   physical instance order untouched, so cached `MotionGroup` mappings remain
   valid.
-- `optimize()` flushes pending state, compacts dead dense instance slots,
+- `TopologyAndLayout` additionally compacts dead dense instance slots,
   spatially reorders instance/query-record storage, and rebuilds with the
   configured quality tier.
 
-Neither operation advances collection age. Public handles and
+Neither mode advances collection age. Public handles and
 `FrontierEntry` instance ids remain stable.
 
 ## 12. Configure allocation, TLAS quality, and parallel selection
@@ -1132,10 +1139,11 @@ SpatialDatabase database(config);
 `BinnedSAH` uses a binned surface-area heuristic to build a tighter TLAS at a
 higher rebuild cost. `SpatialBins` uses linear count/scatter passes and
 `Median` uses comparison-based longest-axis partitioning. The drift thresholds
-decide when `UpdateReport` recommends an explicit topology rebuild; they never
-cause one implicitly. Use `refreshTlas()` for a lower-cost SpatialBins refresh
-during ordinary simulation and `optimize()` when compaction or the configured
-higher-quality topology is worth the extra cost.
+decide when `UpdateReport` recommends explicit optimization; they never cause
+one implicitly. Use `optimize(OptimizationMode::TopologyOnly)` for a lower-cost
+SpatialBins rebuild during ordinary simulation and
+`optimize(OptimizationMode::TopologyAndLayout)` when compaction or the
+configured higher-quality topology is worth the extra cost.
 
 `parallelFor` must block until all requested tasks finish. Internal parallel
 selection is used only for uncached queries, above the configured visible
@@ -1148,10 +1156,10 @@ FrontierResultView cut = uncached.selectFrontier(database, camera, params);
 ```
 
 Database construction rejects unknown TLAS quality values and non-finite or
-negative cost/drift settings. If parallel selection is enabled with more than
-one worker, `parallelFor` must be non-null. Selection likewise rejects invalid
-cameras, thresholds, culling limits, and current-cut policy values before
-traversal begins.
+negative cost/drift settings. `optimize(mode)` rejects unknown modes.
+If parallel selection is enabled with more than one worker, `parallelFor` must
+be non-null. Selection likewise rejects invalid cameras, thresholds, culling
+limits, and current-cut policy values before traversal begins.
 
 Contract violations route through `FRONTIER_FATAL`. With compiler exception
 support enabled, the default throws `std::logic_error`; under
